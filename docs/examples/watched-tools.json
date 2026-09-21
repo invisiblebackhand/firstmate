@@ -12,7 +12,7 @@
       "name": "herdr",
       "command": "herdr",
       "version_args": ["--version"],
-      "brew": { "cask": "herdr" }
+      "brew": { "formula": "herdr" }
     },
     {
       "name": "codex",

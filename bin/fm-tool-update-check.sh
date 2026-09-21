@@ -331,8 +331,10 @@ config_validate() {
       elif ($t | has("npm")) and (($t.npm.package | type) != "string" or ($t.npm.package | length) == 0 or ($t.npm.package | test("^[A-Za-z0-9._@/-]+$") | not)) then "tool \($t.name) npm.package must be a valid npm package name"
       elif ($t | has("npm")) and (($t | has("command")) | not) then "tool \($t.name) npm needs command"
       elif ($t | has("brew")) and (($t.brew | type) != "object") then "tool \($t.name) brew must be an object"
+      elif ($t | has("brew")) and ($t.brew | has("formula")) and (($t.name != "herdr") or ($t.brew.formula != "herdr")) then "only tool herdr may use brew.formula herdr"
       elif ($t | has("brew")) and ($t.brew | has("cask")) and (($t.brew.cask | type) != "string" or ($t.brew.cask | length) == 0 or ($t.brew.cask | test("^[A-Za-z0-9._+-]+$") | not)) then "tool \($t.name) brew.cask must be a valid brew cask name"
-      elif ($t | has("brew")) and (($t.brew | has("cask")) == false) then "tool \($t.name) brew needs cask"
+      elif ($t.name == "herdr") and ($t | has("brew")) and ($t.brew | has("cask")) then "tool herdr must use brew.formula herdr"
+      elif ($t | has("brew")) and (($t.brew | has("formula")) == false) and (($t.brew | has("cask")) == false) then "tool \($t.name) brew needs formula or cask"
       else empty
       end;
     def problems:
@@ -371,12 +373,19 @@ config_records() {
       then $tool.name
       else ""
       end;
-    def default_cask($tool):
-      if ($tool.command == $tool.name) and (["herdr", "codex"] | index($tool.name))
-      then $tool.name
-      else ""
+    def default_brew($tool):
+      if ($tool.command == "herdr") and ($tool.name == "herdr")
+      then ["formula", "herdr"]
+      elif ($tool.command == "codex") and ($tool.name == "codex")
+      then ["cask", "codex"]
+      else ["", ""]
       end;
-    .tools[] as $tool | [
+    .tools[] as $tool |
+    (if ($tool.brew.formula // "") != "" then ["formula", $tool.brew.formula]
+     elif ($tool.brew.cask // "") != "" then ["cask", $tool.brew.cask]
+     elif ($tool | has("npm")) then ["", ""]
+     else default_brew($tool)
+     end) as $brew | [
       $tool.name,
       ($tool.command // ""),
       (($tool.version_args // ["--version"]) | join(" ")),
@@ -386,7 +395,8 @@ config_records() {
       ($tool.git.remote // "origin"),
       ($tool.git.branch // ""),
       ($tool.npm.package // (if ($tool | has("brew")) then "" else default_npm($tool) end)),
-      ($tool.brew.cask // (if ($tool | has("npm")) then "" else default_cask($tool) end))
+      ($brew[0] // ""),
+      ($brew[1] // "")
     ] | join("\u001f")
   ' "$CONFIG" 2>/dev/null
 }
@@ -573,16 +583,23 @@ npm_findings() {
 # --- brew probe -------------------------------------------------------------
 
 brew_findings() {
-  local name=$1 brew_target=$2
-  local status new_version
+  local name=$1 brew_kind=$2 brew_target=$3
+  local status brew_flag brew_key new_version
 
   budget_allows "$name" || return 0
   if ! command -v brew >/dev/null 2>&1; then
     emit "$name check failed: brew is not installed"
     return 0
   fi
+  if [ "$brew_kind" = formula ]; then
+    brew_flag=--formula
+    brew_key=formulae
+  else
+    brew_flag=--cask
+    brew_key=casks
+  fi
   local brew_out
-  brew_out=$(fm_run_timed "$(probe_bound)" brew outdated --json=v2 --cask "$brew_target" 2>/dev/null)
+  brew_out=$(fm_run_timed "$(probe_bound)" brew outdated --json=v2 "$brew_flag" "$brew_target" 2>/dev/null)
   status=$?
   if [ "$status" -eq 124 ]; then
     emit "$name check failed: brew outdated did not answer"
@@ -601,8 +618,8 @@ brew_findings() {
     emit "$name check failed: brew outdated returned invalid JSON for $brew_target"
     return 0
   fi
-  new_version=$(printf '%s' "$brew_out" | jq -r --arg target "$brew_target" \
-    '.casks[] | select(.name == $target) | .current_version // empty' | head -n 1)
+  new_version=$(printf '%s' "$brew_out" | jq -r --arg kind "$brew_key" --arg target "$brew_target" \
+    '.[$kind][] | select(.name == $target) | .current_version // empty' | head -n 1)
   if [ -z "$new_version" ]; then
     if [ "$status" -ne 0 ]; then
       emit "$name check failed: brew outdated failed for $brew_target"
@@ -805,7 +822,7 @@ record_write() {
 # --- actions ----------------------------------------------------------------
 
 action_check() {
-  local name command_name args_joined announce announce_args repo remote branch npm_package brew_cask
+  local name command_name args_joined announce announce_args repo remote branch npm_package brew_kind brew_target
   local line now
 
   [ -f "$CONFIG" ] || return 0
@@ -826,12 +843,12 @@ action_check() {
   if ! config_validate; then
     emit "watched tool registry: $CONFIG_PROBLEM"
   else
-    while IFS=$FIELD_SEP read -r name command_name args_joined announce announce_args repo remote branch npm_package brew_cask; do
+    while IFS=$FIELD_SEP read -r name command_name args_joined announce announce_args repo remote branch npm_package brew_kind brew_target; do
       [ -n "$name" ] || continue
       budget_allows "$name" || break
       [ -z "$command_name" ] || command_findings "$name" "$command_name" "$args_joined" "$announce" "$announce_args"
       [ -z "$npm_package" ] || npm_findings "$name" "$npm_package" "$command_name" "$args_joined"
-      [ -z "$brew_cask" ] || brew_findings "$name" "$brew_cask"
+      [ -z "$brew_target" ] || brew_findings "$name" "$brew_kind" "$brew_target"
       [ -z "$repo" ] || git_findings "$name" "$repo" "$remote" "$branch"
     done < <(config_records)
   fi
