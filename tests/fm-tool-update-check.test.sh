@@ -202,6 +202,28 @@ test_unreadable_version_is_a_failure_not_a_pass() {
   pass "a copy that reports no version is a check failure, not a pass"
 }
 
+test_nonzero_version_output_is_a_failure() {
+  local home dir curl_dir out report
+  home=$(make_home failed-version)
+  dir="$TMP_ROOT/failed-version/bin"
+  curl_dir="$TMP_ROOT/failed-version/curl-bin"
+  mkdir -p "$dir"
+  cat > "$dir/$TOOL" <<'SH'
+#!/usr/bin/env bash
+printf 'Node.js v22.19.0\n'
+exit 1
+SH
+  chmod 0755 "$dir/$TOOL"
+  make_npm_stub "$curl_dir" '0.9.0'
+  write_config "$home" "{\"tools\":[{\"name\":\"herdr\",\"command\":\"$TOOL\",\"npm\":{\"package\":\"herdr\"}}]}"
+  out="$home/out.txt"
+  run_check "$home" "$(fixture_path "$dir:$curl_dir")" "$out"
+  report=$(cat "$out")
+  assert_contains "$report" "$dir/$TOOL did not report a version" "a failed command's numeric output was accepted as its installed version"
+  assert_not_contains "$report" "npm has" "npm compared against output from a failed command"
+  pass "numeric output from a failed command is not an installed version"
+}
+
 test_missing_command_is_reported() {
   local home out
   home=$(make_home absent)
@@ -522,6 +544,8 @@ make_brew_stub() {
   cat > "$dir/brew" <<SH
 #!/usr/bin/env bash
 if [ "\${1:-}" = "outdated" ]; then
+  [ "\${HOMEBREW_NO_AUTO_UPDATE:-}" = 1 ] || exit 2
+  [ "\${HOMEBREW_FORCE_API_AUTO_UPDATE+x}" != x ] || exit 2
   [ "\${2:-}" = "--json=v2" ] || exit 2
   case "\${3:-}:\${4:-}" in
     --formula:herdr)
@@ -550,7 +574,7 @@ test_brew_newer_version_is_reported() {
   make_brew_stub "$brew_dir" '0.9.0'
   write_config "$home" "{\"tools\":[{\"name\":\"codex\",\"command\":\"$TOOL\",\"brew\":{\"cask\":\"codex\"}}]}"
   out="$home/out.txt"
-  run_check "$home" "$(fixture_path "$dir:$brew_dir")" "$out"
+  run_check "$home" "$(fixture_path "$dir:$brew_dir")" "$out" HOMEBREW_FORCE_API_AUTO_UPDATE=1
   report=$(cat "$out")
   assert_contains "$report" "codex update available: brew has 0.9.0" "a brew cask source with a newer version was not reported"
   assert_not_contains "$report" "check failed" "the brew probe reported a failure instead of the update"
@@ -1418,6 +1442,7 @@ test_newest_copy_first_on_path_is_silent
 test_identical_versions_are_silent
 test_one_copy_reached_twice_is_probed_once
 test_unreadable_version_is_a_failure_not_a_pass
+test_nonzero_version_output_is_a_failure
 test_missing_command_is_reported
 test_announced_update_is_reported_from_the_tool_itself
 test_announcement_is_read_from_a_second_command

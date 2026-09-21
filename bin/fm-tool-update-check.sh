@@ -461,11 +461,17 @@ command_findings() {
     fi
     # shellcheck disable=SC2086  # deliberate split on validated space-free tokens
     out=$(probe_output "$hit" $args_joined)
-    version=$(parse_version "$out")
+    status=$?
+    version=
+    if [ "$status" -eq 0 ]; then
+      version=$(parse_version "$out")
+    fi
     if [ -z "$resolved_path" ]; then
       resolved_path=$hit
       resolved_version=$version
-      resolved_out=$out
+      if [ "$status" -eq 0 ]; then
+        resolved_out=$out
+      fi
     fi
     if [ -z "$version" ]; then
       [ -n "$unreadable" ] || unreadable=$hit
@@ -594,7 +600,8 @@ brew_findings() {
     brew_key=casks
   fi
   local brew_out
-  brew_out=$(fm_run_timed "$(probe_bound)" brew outdated --json=v2 "$brew_flag" "$brew_target" 2>/dev/null)
+  brew_out=$(fm_run_timed "$(probe_bound)" env -u HOMEBREW_FORCE_API_AUTO_UPDATE \
+    HOMEBREW_NO_AUTO_UPDATE=1 brew outdated --json=v2 "$brew_flag" "$brew_target" 2>/dev/null)
   status=$?
   if [ "$status" -eq 124 ]; then
     emit "$name check failed: brew outdated did not answer"
