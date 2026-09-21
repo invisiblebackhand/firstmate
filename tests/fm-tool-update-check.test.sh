@@ -521,8 +521,9 @@ make_brew_stub() {
   cat > "$dir/brew" <<SH
 #!/usr/bin/env bash
 if [ "\${1:-}" = "outdated" ]; then
-  if [ "\${2:-}" = "--verbose" ] && [ "\${3:-}" = "--formula" ] && [ "\${4:-}" = "$formula" ]; then
-    printf '$formula (0.8.0) $version\n'
+  if [ "\${2:-}" = "--json=v2" ] && [ "\${3:-}" = "--formula" ] && [ "\${4:-}" = "$formula" ]; then
+    printf '{"formulae":[{"name":"$formula","installed_versions":["0.8.0"],"current_version":"$version"}],"casks":[]}\n'
+    exit 1
   else
     printf '$formula\n'
   fi
@@ -559,8 +560,9 @@ test_brew_cask_newer_version_is_reported() {
   cat > "$brew_dir/brew" <<SH
 #!/usr/bin/env bash
 if [ "\${1:-}" = "outdated" ]; then
-  if [ "\${2:-}" = "--verbose" ] && [ "\${3:-}" = "--cask" ] && [ "\${4:-}" = "$TOOL" ]; then
-    printf '$TOOL (0.8.0) -> [latest] 0.9.0\n'
+  if [ "\${2:-}" = "--json=v2" ] && [ "\${3:-}" = "--cask" ] && [ "\${4:-}" = "$TOOL" ]; then
+    printf '{"formulae":[],"casks":[{"name":"$TOOL","installed_versions":["0.8.0"],"current_version":"0.9.0"}]}\n'
+    exit 1
   else
     printf '$TOOL\n'
   fi
@@ -587,6 +589,7 @@ test_brew_equal_version_is_silent() {
   cat > "$brew_dir/brew" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = "outdated" ]; then
+  printf '{"formulae":[],"casks":[]}\n'
   exit 0
 fi
 exit 0
@@ -650,8 +653,8 @@ test_brew_unparseable_version_is_reported() {
   cat > "$brew_dir/brew" <<SH
 #!/usr/bin/env bash
 if [ "\${1:-}" = "outdated" ]; then
-  printf '$TOOL (installed) -> [latest] not-a-version\n'
-  exit 0
+  printf '{"formulae":[{"name":"$TOOL","installed_versions":["0.8.0"],"current_version":"not-a-version"}],"casks":[]}\n'
+  exit 1
 fi
 exit 0
 SH

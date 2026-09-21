@@ -565,7 +565,7 @@ npm_findings() {
 
 brew_findings() {
   local name=$1 formula=$2 cask=$3
-  local status brew_target brew_kind new_version line
+  local status brew_target brew_flag brew_key new_version
 
   budget_allows "$name" || return 0
   if ! command -v brew >/dev/null 2>&1; then
@@ -574,48 +574,41 @@ brew_findings() {
   fi
   if [ -n "$formula" ]; then
     brew_target="$formula"
-    brew_kind=--formula
+    brew_flag=--formula
+    brew_key=formulae
   else
     brew_target="$cask"
-    brew_kind=--cask
+    brew_flag=--cask
+    brew_key=casks
   fi
   local brew_out
-  brew_out=$(fm_run_timed "$(probe_bound)" brew outdated --verbose "$brew_kind" "$brew_target" 2>/dev/null)
+  brew_out=$(fm_run_timed "$(probe_bound)" brew outdated --json=v2 "$brew_flag" "$brew_target" 2>/dev/null)
   status=$?
   if [ "$status" -eq 124 ]; then
     emit "$name check failed: brew outdated did not answer"
     return 0
   fi
-  if [ "$status" -ne 0 ]; then
+  if [ "$status" -ne 0 ] && [ "$status" -ne 1 ]; then
     emit "$name check failed: brew outdated failed for $brew_target"
     return 0
   fi
-  line=
-  if [ -n "$brew_out" ]; then
-    while IFS= read -r out_line; do
-      if [[ "$out_line" == "$brew_target "* ]]; then
-        line="$out_line"
-        break
-      fi
-    done <<< "$brew_out"
+  if [ -z "$brew_out" ] && [ "$status" -ne 0 ]; then
+    emit "$name check failed: brew outdated failed for $brew_target"
+    return 0
   fi
-  if [ -z "$line" ]; then
-    if [ -n "$brew_out" ]; then
-      emit "$name check failed: brew outdated returned unexpected output for $brew_target"
+  if ! printf '%s' "$brew_out" | jq -e \
+    '(.formulae | type) == "array" and (.casks | type) == "array"' >/dev/null 2>&1; then
+    emit "$name check failed: brew outdated returned invalid JSON for $brew_target"
+    return 0
+  fi
+  new_version=$(printf '%s' "$brew_out" | jq -r --arg kind "$brew_key" --arg target "$brew_target" \
+    '.[$kind][] | select(.name == $target) | .current_version // empty' | head -n 1)
+  if [ -z "$new_version" ]; then
+    if [ "$status" -ne 0 ]; then
+      emit "$name check failed: brew outdated failed for $brew_target"
     fi
     return 0
   fi
-  # Parse the new version from the line.
-  # Formulae: "name (current) new_version" - the last version on the line.
-  # Casks:    "name (installed) -> [latest] new_version" - same.
-  new_version=$(printf '%s' "$line" | awk '{
-    last = ""
-    while (match($0, /[0-9]+(\.[0-9]+)+/)) {
-      last = substr($0, RSTART, RLENGTH)
-      $0 = substr($0, RSTART + RLENGTH)
-    }
-    if (last != "") print last
-  }')
   new_version=$(parse_version "$new_version")
   if [ -z "$new_version" ]; then
     emit "$name check failed: brew outdated returned an unparseable version for $brew_target"
