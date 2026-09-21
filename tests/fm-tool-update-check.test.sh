@@ -387,6 +387,346 @@ test_quiet_tool_with_announce_pattern_is_silent() {
   pass "a tool that announces nothing stays silent"
 }
 
+# --- npm registry source ----------------------------------------------------
+
+# make_npm_stub <dir> <version>: a curl stub that returns npm registry JSON for
+# any registry.npmjs.org URL, reporting the given version.
+make_npm_stub() {
+  local dir=$1 version=$2
+  mkdir -p "$dir"
+  cat > "$dir/curl" <<SH
+#!/usr/bin/env bash
+for arg in "\$@"; do
+  case "\$arg" in
+    *registry.npmjs.org*)
+      printf '{"version":"$version"}\n'
+      exit 0
+      ;;
+  esac
+done
+exit 1
+SH
+  chmod 0755 "$dir/curl"
+}
+
+# make_npm_error_stub <dir>: a curl stub that simulates an unreachable registry.
+make_npm_error_stub() {
+  local dir=$1
+  mkdir -p "$dir"
+  cat > "$dir/curl" <<SH
+#!/usr/bin/env bash
+for arg in "\$@"; do
+  case "\$arg" in
+    *registry.npmjs.org*)
+      exit 1
+      ;;
+  esac
+done
+exit 1
+SH
+  chmod 0755 "$dir/curl"
+}
+
+test_npm_newer_version_is_reported() {
+  local home dir out report
+  home=$(make_home npm-newer)
+  dir="$TMP_ROOT/npm-newer/bin"
+  make_copy "$dir" "$TOOL" 'herdr 0.8.0'
+  make_npm_stub "$TMP_ROOT/npm-newer/curl-bin" '0.9.0'
+  write_config "$home" "{\"tools\":[{\"name\":\"herdr\",\"command\":\"$TOOL\",\"npm\":{\"package\":\"herdr\"}}]}"
+  out="$home/out.txt"
+  run_check "$home" "$(fixture_path "$dir:$TMP_ROOT/npm-newer/curl-bin")" "$out"
+  report=$(cat "$out")
+  assert_contains "$report" "herdr update available: installed 0.8.0 but npm has 0.9.0" "an npm source with a newer version was not reported"
+  assert_not_contains "$report" "check failed" "the npm probe reported a failure instead of the update"
+  pass "an npm source reports when the registry has a newer version"
+}
+
+test_npm_equal_version_is_silent() {
+  local home dir out
+  home=$(make_home npm-equal)
+  dir="$TMP_ROOT/npm-equal/bin"
+  make_copy "$dir" "$TOOL" 'herdr 0.8.2'
+  make_npm_stub "$TMP_ROOT/npm-equal/curl-bin" '0.8.2'
+  write_config "$home" "{\"tools\":[{\"name\":\"herdr\",\"command\":\"$TOOL\",\"npm\":{\"package\":\"herdr\"}}]}"
+  out="$home/out.txt"
+  run_check "$home" "$(fixture_path "$dir:$TMP_ROOT/npm-equal/curl-bin")" "$out"
+  [ ! -s "$out" ] || fail "npm with the same version produced a report: $(cat "$out")"
+  pass "an npm source with the same version as installed is silent"
+}
+
+test_npm_unreachable_registry_is_reported() {
+  local home dir out report
+  home=$(make_home npm-unreachable)
+  dir="$TMP_ROOT/npm-unreachable/bin"
+  make_copy "$dir" "$TOOL" 'herdr 0.8.2'
+  make_npm_error_stub "$TMP_ROOT/npm-unreachable/curl-bin"
+  write_config "$home" "{\"tools\":[{\"name\":\"herdr\",\"command\":\"$TOOL\",\"npm\":{\"package\":\"herdr\"}}]}"
+  out="$home/out.txt"
+  run_check "$home" "$(fixture_path "$dir:$TMP_ROOT/npm-unreachable/curl-bin")" "$out"
+  report=$(cat "$out")
+  assert_contains "$report" "herdr check failed: npm registry unreachable or package herdr not found" "an unreachable npm registry was not reported as a failure"
+  pass "an unreachable npm registry is reported as a check failure"
+}
+
+test_npm_package_not_found_is_reported() {
+  local home dir out report
+  home=$(make_home npm-not-found)
+  dir="$TMP_ROOT/npm-not-found/bin"
+  make_copy "$dir" "$TOOL" 'herdr 0.8.2'
+  # A curl stub that returns empty output for npm URLs.
+  mkdir -p "$TMP_ROOT/npm-not-found/curl-bin"
+  cat > "$TMP_ROOT/npm-not-found/curl-bin/curl" <<'SH'
+#!/usr/bin/env bash
+for arg in "$@"; do
+  case "$arg" in
+    *registry.npmjs.org*) exit 0 ;;
+  esac
+done
+exit 1
+SH
+  chmod 0755 "$TMP_ROOT/npm-not-found/curl-bin/curl"
+  write_config "$home" "{\"tools\":[{\"name\":\"herdr\",\"command\":\"$TOOL\",\"npm\":{\"package\":\"nonexistent-package\"}}]}"
+  out="$home/out.txt"
+  run_check "$home" "$(fixture_path "$dir:$TMP_ROOT/npm-not-found/curl-bin")" "$out"
+  report=$(cat "$out")
+  assert_contains "$report" "herdr check failed: npm registry unreachable or package nonexistent-package not found" "an npm package that returns no version was not reported"
+  pass "an npm package the registry cannot find is reported as a check failure"
+}
+
+test_npm_source_alongside_command_both_report() {
+  local home dir curl_dir out report
+  # When a tool has both command and npm, command reports PATH skew and npm
+  # reports the registry version; both findings appear in the same sweep.
+  home=$(make_home npm-both)
+  dir="$TMP_ROOT/npm-both/stale/bin"
+  curl_dir="$TMP_ROOT/npm-both/curl-bin"
+  make_copy "$dir" "$TOOL" 'herdr 0.8.0'
+  make_npm_stub "$curl_dir" '0.9.0'
+  write_config "$home" "{\"tools\":[{\"name\":\"herdr\",\"command\":\"$TOOL\",\"npm\":{\"package\":\"herdr\"}}]}"
+  out="$home/out.txt"
+  run_check "$home" "$(fixture_path "$dir:$curl_dir")" "$out"
+  report=$(cat "$out")
+  assert_contains "$report" "herdr update available: installed 0.8.0 but npm has 0.9.0" "the npm source was not reported alongside the command source"
+  pass "npm and command sources both report in the same sweep"
+}
+
+# --- brew source ------------------------------------------------------------
+
+# make_brew_stub <dir> <formula> <version>: a brew stub that reports the given
+# formula as outdated with the given new version.
+make_brew_stub() {
+  local dir=$1 formula=$2 version=$3
+  mkdir -p "$dir"
+  cat > "$dir/brew" <<SH
+#!/usr/bin/env bash
+if [ "\${1:-}" = "outdated" ]; then
+  printf '$formula (0.8.0) $version\n'
+  exit 0
+fi
+exit 0
+SH
+  chmod 0755 "$dir/brew"
+}
+
+test_brew_newer_version_is_reported() {
+  local home dir brew_dir out report
+  home=$(make_home brew-newer)
+  dir="$TMP_ROOT/brew-newer/bin"
+  brew_dir="$TMP_ROOT/brew-newer/brew-bin"
+  make_copy "$dir" "$TOOL" 'herdr 0.8.0'
+  make_brew_stub "$brew_dir" "$TOOL" '0.9.0'
+  write_config "$home" "{\"tools\":[{\"name\":\"herdr\",\"command\":\"$TOOL\",\"brew\":{\"formula\":\"$TOOL\"}}]}"
+  out="$home/out.txt"
+  run_check "$home" "$(fixture_path "$dir:$brew_dir")" "$out"
+  report=$(cat "$out")
+  assert_contains "$report" "herdr update available: brew has 0.9.0" "a brew source with a newer version was not reported"
+  assert_not_contains "$report" "check failed" "the brew probe reported a failure instead of the update"
+  pass "a brew source reports when brew outdated lists the formula"
+}
+
+test_brew_cask_newer_version_is_reported() {
+  local home dir brew_dir out report
+  home=$(make_home brew-cask)
+  dir="$TMP_ROOT/brew-cask/bin"
+  brew_dir="$TMP_ROOT/brew-cask/brew-bin"
+  make_copy "$dir" "$TOOL" 'herdr 0.8.0'
+  mkdir -p "$brew_dir"
+  cat > "$brew_dir/brew" <<SH
+#!/usr/bin/env bash
+if [ "\${1:-}" = "outdated" ]; then
+  printf '$TOOL (0.8.0) -> [latest] 0.9.0\n'
+  exit 0
+fi
+exit 0
+SH
+  chmod 0755 "$brew_dir/brew"
+  write_config "$home" "{\"tools\":[{\"name\":\"herdr\",\"command\":\"$TOOL\",\"brew\":{\"cask\":\"$TOOL\"}}]}"
+  out="$home/out.txt"
+  run_check "$home" "$(fixture_path "$dir:$brew_dir")" "$out"
+  report=$(cat "$out")
+  assert_contains "$report" "herdr update available: brew has 0.9.0" "a brew cask source with a newer version was not reported"
+  pass "a brew cask source reports when brew outdated lists the cask"
+}
+
+test_brew_equal_version_is_silent() {
+  local home dir brew_dir out
+  home=$(make_home brew-equal)
+  dir="$TMP_ROOT/brew-equal/bin"
+  brew_dir="$TMP_ROOT/brew-equal/brew-bin"
+  make_copy "$dir" "$TOOL" 'herdr 0.8.2'
+  mkdir -p "$brew_dir"
+  cat > "$brew_dir/brew" <<'SH'
+#!/usr/bin/env bash
+if [ "${1:-}" = "outdated" ]; then
+  exit 0
+fi
+exit 0
+SH
+  chmod 0755 "$brew_dir/brew"
+  write_config "$home" "{\"tools\":[{\"name\":\"herdr\",\"command\":\"$TOOL\",\"brew\":{\"formula\":\"$TOOL\"}}]}"
+  out="$home/out.txt"
+  run_check "$home" "$(fixture_path "$dir:$brew_dir")" "$out"
+  [ ! -s "$out" ] || fail "brew with no outdated listing produced a report: $(cat "$out")"
+  pass "a brew source with the formula not listed as outdated is silent"
+}
+
+test_brew_not_installed_is_reported() {
+  local home dir out report no_brew_path
+  home=$(make_home brew-absent)
+  dir="$TMP_ROOT/brew-absent/bin"
+  make_copy "$dir" "$TOOL" 'herdr 0.8.2'
+  write_config "$home" "{\"tools\":[{\"name\":\"herdr\",\"command\":\"$TOOL\",\"brew\":{\"formula\":\"$TOOL\"}}]}"
+  out="$home/out.txt"
+  # Build a PATH with the fixture but no brew binary, so the test works on
+  # hosts that have brew installed.
+  no_brew_path="$dir"
+  while IFS= read -r d; do
+    [ -n "$d" ] || continue
+    [ -x "$d/brew" ] && continue
+    no_brew_path="$no_brew_path:$d"
+  done < <(printf '%s\n' "$PATH" | tr ':' '\n')
+  run_check "$home" "$no_brew_path" "$out"
+  report=$(cat "$out")
+  assert_contains "$report" "herdr check failed: brew is not installed" "a missing brew was not reported as a failure"
+  pass "a brew source when brew is not installed is reported as a check failure"
+}
+
+test_brew_unparseable_version_is_reported() {
+  local home dir brew_dir out report
+  home=$(make_home brew-unparseable)
+  dir="$TMP_ROOT/brew-unparseable/bin"
+  brew_dir="$TMP_ROOT/brew-unparseable/brew-bin"
+  make_copy "$dir" "$TOOL" 'herdr 0.8.0'
+  mkdir -p "$brew_dir"
+  cat > "$brew_dir/brew" <<SH
+#!/usr/bin/env bash
+if [ "\${1:-}" = "outdated" ]; then
+  printf '$TOOL (installed) -> [latest] not-a-version\n'
+  exit 0
+fi
+exit 0
+SH
+  chmod 0755 "$brew_dir/brew"
+  write_config "$home" "{\"tools\":[{\"name\":\"herdr\",\"command\":\"$TOOL\",\"brew\":{\"formula\":\"$TOOL\"}}]}"
+  out="$home/out.txt"
+  run_check "$home" "$(fixture_path "$dir:$brew_dir")" "$out"
+  report=$(cat "$out")
+  assert_contains "$report" "herdr check failed: brew outdated returned an unparseable version for $TOOL" "a brew output with no parseable version was not reported"
+  pass "a brew outdated output with no parseable version is reported as a check failure"
+}
+
+test_brew_probes_respect_the_sweep_budget() {
+  local home dir brew_dir out report
+  home=$(make_home brew-budget)
+  dir="$TMP_ROOT/brew-budget/bin"
+  brew_dir="$TMP_ROOT/brew-budget/brew-bin"
+  make_slow_copy "$dir" "$TOOL" 30
+  make_brew_stub "$brew_dir" "$TOOL" '0.9.0'
+  write_config "$home" "{\"tools\":[{\"name\":\"herdr\",\"command\":\"$TOOL\",\"brew\":{\"formula\":\"$TOOL\"}}]}"
+  out="$home/out.txt"
+  run_check "$home" "$(fixture_path "$dir:$brew_dir")" "$out" FM_TOOL_UPDATE_BUDGET_SECS=1
+  report=$(cat "$out")
+  assert_contains "$report" "check incomplete: the time budget ran out before herdr" "a sweep with no budget left did not say which tool it did not finish"
+  assert_not_contains "$report" "brew has" "the brew probe ran after the sweep budget was already gone"
+  pass "brew probes stop when the sweep budget is exhausted"
+}
+
+test_malformed_config_with_brew_needs_formula_or_cask() {
+  local home out
+  home=$(make_home brew-no-source)
+  write_config "$home" '{"tools":[{"name":"herdr","brew":{}}]}'
+  out="$home/out.txt"
+  run_check "$home" "$PATH" "$out"
+  assert_contains "$(cat "$out")" "tool herdr brew needs formula or cask" "a brew entry with no formula or cask was accepted"
+  pass "a brew entry without formula or cask is rejected"
+}
+
+# --- additional npm and brew edge cases --------------------------------------
+
+test_npm_older_version_is_silent() {
+  local home dir out
+  home=$(make_home npm-older)
+  dir="$TMP_ROOT/npm-older/bin"
+  make_copy "$dir" "$TOOL" 'herdr 0.9.0'
+  make_npm_stub "$TMP_ROOT/npm-older/curl-bin" '0.8.0'
+  write_config "$home" "{\"tools\":[{\"name\":\"herdr\",\"command\":\"$TOOL\",\"npm\":{\"package\":\"herdr\"}}]}"
+  out="$home/out.txt"
+  run_check "$home" "$(fixture_path "$dir:$TMP_ROOT/npm-older/curl-bin")" "$out"
+  [ ! -s "$out" ] || fail "npm with an older version produced a report: $(cat "$out")"
+  pass "an npm source with a version older than installed is silent"
+}
+
+test_npm_probe_timeout_is_reported() {
+  local home dir out report
+  home=$(make_home npm-timeout)
+  dir="$TMP_ROOT/npm-timeout/bin"
+  make_copy "$dir" "$TOOL" 'herdr 0.8.2'
+  # A curl stub that sleeps past the probe bound for npm URLs.
+  mkdir -p "$TMP_ROOT/npm-timeout/curl-bin"
+  cat > "$TMP_ROOT/npm-timeout/curl-bin/curl" <<'SH'
+#!/usr/bin/env bash
+for arg in "$@"; do
+  case "$arg" in
+    *registry.npmjs.org*) sleep 30; exit 0 ;;
+  esac
+done
+exit 1
+SH
+  chmod 0755 "$TMP_ROOT/npm-timeout/curl-bin/curl"
+  write_config "$home" "{\"tools\":[{\"name\":\"herdr\",\"command\":\"$TOOL\",\"npm\":{\"package\":\"herdr\"}}]}"
+  out="$home/out.txt"
+  run_check "$home" "$(fixture_path "$dir:$TMP_ROOT/npm-timeout/curl-bin")" "$out" FM_TOOL_UPDATE_PROBE_SECS=1
+  report=$(cat "$out")
+  assert_contains "$report" "herdr check failed: npm registry did not answer for herdr" "an npm probe that timed out was not reported"
+  pass "an npm probe that does not answer within the probe bound is reported"
+}
+
+test_brew_probe_timeout_is_reported() {
+  local home dir brew_dir out report
+  home=$(make_home brew-timeout)
+  dir="$TMP_ROOT/brew-timeout/bin"
+  brew_dir="$TMP_ROOT/brew-timeout/brew-bin"
+  make_copy "$dir" "$TOOL" 'herdr 0.8.0'
+  # A brew stub that sleeps past the probe bound.
+  mkdir -p "$brew_dir"
+  cat > "$brew_dir/brew" <<'SH'
+#!/usr/bin/env bash
+if [ "${1:-}" = "outdated" ]; then
+  sleep 30
+  exit 0
+fi
+exit 0
+SH
+  chmod 0755 "$brew_dir/brew"
+  write_config "$home" "{\"tools\":[{\"name\":\"herdr\",\"command\":\"$TOOL\",\"brew\":{\"formula\":\"$TOOL\"}}]}"
+  out="$home/out.txt"
+  run_check "$home" "$(fixture_path "$dir:$brew_dir")" "$out" FM_TOOL_UPDATE_PROBE_SECS=1
+  report=$(cat "$out")
+  assert_contains "$report" "herdr check failed: brew outdated did not answer" "a brew probe that timed out was not reported"
+  pass "a brew probe that does not answer within the probe bound is reported"
+}
+
 # --- git sources ------------------------------------------------------------
 
 # git_fixture <name>: a work repo whose origin branch is two commits ahead,
@@ -638,7 +978,7 @@ test_malformed_registry_is_reported_not_ignored() {
   printf '%s\n' '{"tools":[{"name":"herdr"}]}' > "$home/config/watched-tools.json"
   rm -f "$home/state/.tool-updates"
   run_check "$home" "$PATH" "$out"
-  assert_contains "$(cat "$out")" "tool herdr needs command, git, or both" "a tool entry with no update source was accepted"
+  assert_contains "$(cat "$out")" "tool herdr needs command, git, npm, or brew" "a tool entry with no update source was accepted"
 
   printf '%s\n' '{"tools":[{"name":"herdr","command":"herdr; rm -rf /"}]}' > "$home/config/watched-tools.json"
   rm -f "$home/state/.tool-updates"
@@ -1018,6 +1358,21 @@ test_one_broken_pattern_does_not_blind_the_rest_of_the_sweep
 test_an_unchecked_announcement_source_is_not_read_as_current
 test_an_announcement_probe_that_does_not_answer_is_reported
 test_quiet_tool_with_announce_pattern_is_silent
+test_npm_newer_version_is_reported
+test_npm_equal_version_is_silent
+test_npm_unreachable_registry_is_reported
+test_npm_package_not_found_is_reported
+test_npm_source_alongside_command_both_report
+test_brew_newer_version_is_reported
+test_brew_cask_newer_version_is_reported
+test_brew_equal_version_is_silent
+test_brew_not_installed_is_reported
+test_brew_unparseable_version_is_reported
+test_brew_probes_respect_the_sweep_budget
+test_malformed_config_with_brew_needs_formula_or_cask
+test_npm_older_version_is_silent
+test_npm_probe_timeout_is_reported
+test_brew_probe_timeout_is_reported
 test_commits_behind_origin_are_reported
 test_default_branch_is_detected_when_branch_is_omitted
 test_default_branch_is_asked_of_the_remote_when_the_clone_has_no_record

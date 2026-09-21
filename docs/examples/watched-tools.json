@@ -11,7 +11,8 @@
     {
       "name": "herdr",
       "command": "herdr",
-      "version_args": ["--version"]
+      "version_args": ["--version"],
+      "brew": { "cask": "herdr" }
     },
     {
       "name": "no-mistakes",
@@ -19,6 +20,36 @@
       "version_args": ["--version"],
       "announce_args": ["--help"],
       "announce_pattern": "A new version of no-mistakes is available: [^ ]+ -> [^ ]+"
+    },
+    {
+      "name": "lavish-axi",
+      "command": "lavish-axi",
+      "npm": { "package": "lavish-axi" }
+    },
+    {
+      "name": "gh-axi",
+      "command": "gh-axi",
+      "npm": { "package": "gh-axi" }
+    },
+    {
+      "name": "quota-axi",
+      "command": "quota-axi",
+      "npm": { "package": "quota-axi" }
+    },
+    {
+      "name": "tasks-axi",
+      "command": "tasks-axi",
+      "npm": { "package": "tasks-axi" }
+    },
+    {
+      "name": "chrome-devtools-axi",
+      "command": "chrome-devtools-axi",
+      "npm": { "package": "chrome-devtools-axi" }
+    },
+    {
+      "name": "backpass",
+      "command": "backpass",
+      "npm": { "package": "backpass" }
     }
   ]
 }

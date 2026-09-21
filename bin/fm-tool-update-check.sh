@@ -314,7 +314,7 @@ config_validate() {
       if ($t | type) != "object" then "every entry in tools must be an object"
       elif ($t.name | type) != "string" or ($t.name | length) == 0 then "every tool needs a non-empty name"
       elif ($t.name | test("^[A-Za-z0-9._+-]+$") | not) then "tool name \($t.name) may use only letters, digits, dot, underscore, plus, and dash"
-      elif ($t | has("command") | not) and ($t | has("git") | not) then "tool \($t.name) needs command, git, or both"
+      elif ($t | has("command") | not) and ($t | has("git") | not) and ($t | has("npm") | not) and ($t | has("brew") | not) then "tool \($t.name) needs command, git, npm, or brew"
       elif ($t | has("command")) and (($t.command | type) != "string" or ($t.command | test("^[A-Za-z0-9._+-]+$") | not)) then "tool \($t.name) command must be a bare executable name"
       elif ($t | has("version_args")) and (($t.version_args | type) != "array" or ($t.version_args | length) == 0) then "tool \($t.name) version_args must be a non-empty array"
       elif ($t | has("version_args")) and ([$t.version_args[] | select((type != "string") or (test("^[A-Za-z0-9._=+/:-]+$") | not))] | length) > 0 then "tool \($t.name) version_args must be simple flag strings without spaces"
@@ -327,6 +327,12 @@ config_validate() {
       elif ($t | has("git")) and (($t.git.repo | type) != "string" or ($t.git.repo | startswith("/") | not) or ($t.git.repo | test("[[:cntrl:]]"))) then "tool \($t.name) git.repo must be an absolute path on one line"
       elif ($t | has("git")) and ($t.git | has("remote")) and (($t.git.remote | type) != "string" or ($t.git.remote | test("^[A-Za-z0-9._-]+$") | not)) then "tool \($t.name) git.remote must be a simple remote name"
       elif ($t | has("git")) and ($t.git | has("branch")) and (($t.git.branch | type) != "string" or ($t.git.branch | test("^[A-Za-z0-9._/-]+$") | not)) then "tool \($t.name) git.branch must be a simple branch name"
+      elif ($t | has("npm")) and (($t.npm | type) != "object") then "tool \($t.name) npm must be an object"
+      elif ($t | has("npm")) and (($t.npm.package | type) != "string" or ($t.npm.package | length) == 0 or ($t.npm.package | test("^[A-Za-z0-9._@/-]+$") | not)) then "tool \($t.name) npm.package must be a valid npm package name"
+      elif ($t | has("brew")) and (($t.brew | type) != "object") then "tool \($t.name) brew must be an object"
+      elif ($t | has("brew")) and ($t.brew | has("formula")) and (($t.brew.formula | type) != "string" or ($t.brew.formula | length) == 0 or ($t.brew.formula | test("^[A-Za-z0-9._+-]+$") | not)) then "tool \($t.name) brew.formula must be a valid brew formula name"
+      elif ($t | has("brew")) and ($t.brew | has("cask")) and (($t.brew.cask | type) != "string" or ($t.brew.cask | length) == 0 or ($t.brew.cask | test("^[A-Za-z0-9._+-]+$") | not)) then "tool \($t.name) brew.cask must be a valid brew cask name"
+      elif ($t | has("brew")) and (($t.brew | has("formula")) == false) and (($t.brew | has("cask")) == false) then "tool \($t.name) brew needs formula or cask"
       else empty
       end;
     def problems:
@@ -367,7 +373,10 @@ config_records() {
       ((.announce_args // .version_args // ["--version"]) | join(" ")),
       (.git.repo // ""),
       (.git.remote // "origin"),
-      (.git.branch // "")
+      (.git.branch // ""),
+      (.npm.package // ""),
+      (.brew.formula // ""),
+      (.brew.cask // "")
     ] | join("\u001f")
   ' "$CONFIG" 2>/dev/null
 }
@@ -501,9 +510,120 @@ EOF
   return 0
 }
 
+# --- npm registry probe ----------------------------------------------------
+
+npm_findings() {
+  local name=$1 package=$2 command_name=$3 args_joined=$4
+  local status latest installed hits hit out
+
+  budget_allows "$name" || return 0
+  # Sanitize the package name to prevent shell injection in the URL.
+  case "$package" in
+    ''|*[^A-Za-z0-9._@/-]*)
+      emit "$name check failed: invalid npm package name '$package'"
+      return 0
+      ;;
+  esac
+  latest=$(fm_run_timed "$(probe_bound)" curl -fsSL --connect-timeout "$PROBE_SECS" --max-time "$PROBE_SECS" \
+    "https://registry.npmjs.org/$package/latest" 2>/dev/null)
+  status=$?
+  if [ "$status" -eq 124 ]; then
+    emit "$name check failed: npm registry did not answer for $package"
+    return 0
+  fi
+  if [ "$status" -ne 0 ] || [ -z "$latest" ]; then
+    emit "$name check failed: npm registry unreachable or package $package not found"
+    return 0
+  fi
+  latest=$(printf '%s' "$latest" | jq -r '.version // empty' 2>/dev/null)
+  latest=$(parse_version "$latest")
+  if [ -z "$latest" ]; then
+    emit "$name check failed: npm registry returned no version for $package"
+    return 0
+  fi
+  # Compare against the installed version on PATH when the tool declares a
+  # command. Without a command we have nothing to compare against.
+  if [ -n "$command_name" ]; then
+    hits=$(path_hits "$command_name")
+    if [ -n "$hits" ]; then
+      hit=$(printf '%s' "$hits" | head -n 1)
+      if [ -n "$hit" ]; then
+        if budget_exhausted; then
+          emit "$name check failed: the time budget ran out before $command_name answered"
+          return 0
+        fi
+        # shellcheck disable=SC2086  # deliberate split on validated space-free tokens
+        out=$(probe_output "$hit" $args_joined)
+        installed=$(parse_version "$out")
+        if [ -n "$installed" ] && version_newer "$latest" "$installed"; then
+          emit "$name update available: installed $installed but npm has $latest"
+        fi
+      fi
+    fi
+  fi
+  return 0
+}
+
+# --- brew probe -------------------------------------------------------------
+
+brew_findings() {
+  local name=$1 formula=$2 cask=$3
+  local status brew_target new_version line
+
+  budget_allows "$name" || return 0
+  if ! command -v brew >/dev/null 2>&1; then
+    emit "$name check failed: brew is not installed"
+    return 0
+  fi
+  if [ -n "$formula" ]; then
+    brew_target="$formula"
+  else
+    brew_target="$cask"
+  fi
+  # brew outdated lists all outdated items; filter for our specific formula/cask.
+  local brew_out
+  brew_out=$(fm_run_timed "$(probe_bound)" brew outdated 2>/dev/null)
+  status=$?
+  line=
+  if [ "$status" -ne 124 ] && [ -n "$brew_out" ]; then
+    while IFS= read -r out_line; do
+      if [[ "$out_line" == "$brew_target "* ]]; then
+        line="$out_line"
+        break
+      fi
+    done <<< "$brew_out"
+  fi
+  if [ "$status" -eq 124 ]; then
+    emit "$name check failed: brew outdated did not answer"
+    return 0
+  fi
+  if [ -z "$line" ]; then
+    # Not listed in outdated = up to date (or brew itself failed).
+    return 0
+  fi
+  # Parse the new version from the line.
+  # Formulae: "name (current) new_version" - the last version on the line.
+  # Casks:    "name (installed) -> [latest] new_version" - same.
+  new_version=$(printf '%s' "$line" | awk '{
+    last = ""
+    while (match($0, /[0-9]+(\.[0-9]+)+/)) {
+      last = substr($0, RSTART, RLENGTH)
+      $0 = substr($0, RSTART + RLENGTH)
+    }
+    if (last != "") print last
+  }')
+  new_version=$(parse_version "$new_version")
+  if [ -z "$new_version" ]; then
+    emit "$name check failed: brew outdated returned an unparseable version for $brew_target"
+    return 0
+  fi
+  emit "$name update available: brew has $new_version"
+  return 0
+}
+
 # --- git probes -------------------------------------------------------------
 
-# A probe the sweep budget can no longer afford is never issued, and says so with
+# A probe the sweep budget can no longer afford is never issued, and says with
 # a status of its own rather than a git status, so no caller can read it as an
 # answer. Neither git nor the bounded runner uses this value.
 GIT_PROBE_NOT_ISSUED=3
@@ -688,7 +808,7 @@ record_write() {
 # --- actions ----------------------------------------------------------------
 
 action_check() {
-  local name command_name args_joined announce announce_args repo remote branch
+  local name command_name args_joined announce announce_args repo remote branch npm_package brew_formula brew_cask
   local line now
 
   [ -f "$CONFIG" ] || return 0
@@ -709,10 +829,12 @@ action_check() {
   if ! config_validate; then
     emit "watched tool registry: $CONFIG_PROBLEM"
   else
-    while IFS=$FIELD_SEP read -r name command_name args_joined announce announce_args repo remote branch; do
+    while IFS=$FIELD_SEP read -r name command_name args_joined announce announce_args repo remote branch npm_package brew_formula brew_cask; do
       [ -n "$name" ] || continue
       budget_allows "$name" || break
       [ -z "$command_name" ] || command_findings "$name" "$command_name" "$args_joined" "$announce" "$announce_args"
+      [ -z "$npm_package" ] || npm_findings "$name" "$npm_package" "$command_name" "$args_joined"
+      [ -z "$brew_formula" ] && [ -z "$brew_cask" ] || brew_findings "$name" "$brew_formula" "$brew_cask"
       [ -z "$repo" ] || git_findings "$name" "$repo" "$remote" "$branch"
     done < <(config_records)
   fi
