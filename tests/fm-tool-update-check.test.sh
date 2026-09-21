@@ -494,21 +494,22 @@ SH
   pass "an npm package the registry cannot find is reported as a check failure"
 }
 
-test_npm_source_alongside_command_both_report() {
-  local home dir curl_dir out report
-  # When a tool has both command and npm, command reports PATH skew and npm
-  # reports the registry version; both findings appear in the same sweep.
+test_npm_source_uses_newest_installed_path_copy() {
+  local home stale fresh curl_dir out report
   home=$(make_home npm-both)
-  dir="$TMP_ROOT/npm-both/stale/bin"
+  stale="$TMP_ROOT/npm-both/stale/bin"
+  fresh="$TMP_ROOT/npm-both/fresh/bin"
   curl_dir="$TMP_ROOT/npm-both/curl-bin"
-  make_copy "$dir" "$TOOL" 'herdr 0.8.0'
+  make_copy "$stale" "$TOOL" 'herdr 0.8.0'
+  make_copy "$fresh" "$TOOL" 'herdr 0.9.0'
   make_npm_stub "$curl_dir" '0.9.0'
   write_config "$home" "{\"tools\":[{\"name\":\"herdr\",\"command\":\"$TOOL\",\"npm\":{\"package\":\"herdr\"}}]}"
   out="$home/out.txt"
-  run_check "$home" "$(fixture_path "$dir:$curl_dir")" "$out"
+  run_check "$home" "$(fixture_path "$stale:$fresh:$curl_dir")" "$out"
   report=$(cat "$out")
-  assert_contains "$report" "herdr update available: installed 0.8.0 but npm has 0.9.0" "the npm source was not reported alongside the command source"
-  pass "npm and command sources both report in the same sweep"
+  assert_contains "$report" "herdr update not in effect: PATH resolves 0.8.0 at $stale/$TOOL but 0.9.0 is installed at $fresh/$TOOL" "the command source did not report PATH skew"
+  assert_not_contains "$report" "update available" "npm compared its latest version with the stale PATH copy"
+  pass "npm compares its latest version with the newest installed PATH copy"
 }
 
 # --- brew source ------------------------------------------------------------
@@ -1429,7 +1430,7 @@ test_npm_newer_version_is_reported
 test_npm_equal_version_is_silent
 test_npm_unreachable_registry_is_reported
 test_npm_package_not_found_is_reported
-test_npm_source_alongside_command_both_report
+test_npm_source_uses_newest_installed_path_copy
 test_brew_newer_version_is_reported
 test_herdr_formula_newer_version_is_reported
 test_command_only_builtin_sources_receive_defaults

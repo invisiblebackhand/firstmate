@@ -193,6 +193,7 @@ real_epoch() { date +%s; }
 FINDINGS=
 DEADLINE=0
 INCOMPLETE_REPORTED=0
+COMMAND_BEST_VERSION=
 
 # Each finding is flattened to a single line here, because the whole report must
 # stay one line for the wake record.
@@ -434,7 +435,9 @@ command_findings() {
   local name=$1 command_name=$2 args_joined=$3 announce=$4 announce_args=$5
   local hit out version matched announce_out status
   local resolved_path='' resolved_version='' resolved_out=''
-  local best_path='' best_version='' unreadable='' hits=''
+  local best_path='' best_version='' unreadable='' hits='' complete=1
+
+  COMMAND_BEST_VERSION=
 
   # This tool's announcement source is dead if its pattern cannot be used, which
   # is reported here, for this tool alone, so the rest of the sweep still runs.
@@ -453,6 +456,7 @@ command_findings() {
     [ -n "$hit" ] || continue
     if budget_exhausted; then
       emit "$name check failed: the time budget ran out before every copy answered"
+      complete=0
       break
     fi
     # shellcheck disable=SC2086  # deliberate split on validated space-free tokens
@@ -474,6 +478,10 @@ command_findings() {
   done <<EOF
 $hits
 EOF
+
+  if [ "$complete" -eq 1 ] && [ -z "$unreadable" ]; then
+    COMMAND_BEST_VERSION=$best_version
+  fi
 
   if [ -n "$announce" ] && [ -n "$resolved_path" ]; then
     # A tool does not have to announce its update on the command that reports its
@@ -533,8 +541,8 @@ EOF
 # --- npm registry probe ----------------------------------------------------
 
 npm_findings() {
-  local name=$1 package=$2 command_name=$3 args_joined=$4
-  local status latest installed hits hit out
+  local name=$1 package=$2 installed=$3
+  local status latest
 
   budget_allows "$name" || return 0
   # Sanitize the package name to prevent shell injection in the URL.
@@ -561,21 +569,8 @@ npm_findings() {
     emit "$name check failed: npm registry returned no version for $package"
     return 0
   fi
-  hits=$(path_hits "$command_name")
-  if [ -n "$hits" ]; then
-    hit=$(printf '%s' "$hits" | head -n 1)
-    if [ -n "$hit" ]; then
-      if budget_exhausted; then
-        emit "$name check failed: the time budget ran out before $command_name answered"
-        return 0
-      fi
-      # shellcheck disable=SC2086  # deliberate split on validated space-free tokens
-      out=$(probe_output "$hit" $args_joined)
-      installed=$(parse_version "$out")
-      if [ -n "$installed" ] && version_newer "$latest" "$installed"; then
-        emit "$name update available: installed $installed but npm has $latest"
-      fi
-    fi
+  if [ -n "$installed" ] && version_newer "$latest" "$installed"; then
+    emit "$name update available: installed $installed but npm has $latest"
   fi
   return 0
 }
@@ -847,7 +842,7 @@ action_check() {
       [ -n "$name" ] || continue
       budget_allows "$name" || break
       [ -z "$command_name" ] || command_findings "$name" "$command_name" "$args_joined" "$announce" "$announce_args"
-      [ -z "$npm_package" ] || npm_findings "$name" "$npm_package" "$command_name" "$args_joined"
+      [ -z "$npm_package" ] || npm_findings "$name" "$npm_package" "$COMMAND_BEST_VERSION"
       [ -z "$brew_target" ] || brew_findings "$name" "$brew_kind" "$brew_target"
       [ -z "$repo" ] || git_findings "$name" "$repo" "$remote" "$branch"
     done < <(config_records)
