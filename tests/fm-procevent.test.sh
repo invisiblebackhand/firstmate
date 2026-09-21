@@ -3254,7 +3254,7 @@ prompts[4]:
     prompt: "Context data: {\"question\":\"expanded-note\",\"answer\":null,\"note\":\"Explain first\"}"
     selector: "section#note"
     tag: choice
-    text: "Other"
+    text: "Title -> Explain first"
   - uid: "4"
     prompt: "Context data: {\"question\":\"expanded-substring\",\"answer\":\"approve\",\"note\":\"safe\"}"
     selector: "section#substring"
@@ -3275,8 +3275,10 @@ answers_out=$("$ROOT/bin/fm-procevent-lavish.sh" answers "$READ") \
   || fail "answers refused a valid expanded capture"
 assert_contains "$answers_out" $'expanded-choice\tapprove\tApprove - Typed reason · checked' \
   "expanded selected answer lost its typed rationale before keyed intake"
-assert_contains "$answers_out" $'expanded-note\tExplain first\tOther' \
+assert_contains "$answers_out" $'expanded-note\tExplain first\tTitle -> Explain first' \
   "expanded note-only answer did not reach keyed intake"
+assert_not_contains "$answers_out" $'expanded-note\tExplain first\tTitle -> Explain first - Explain first' \
+  "expanded legacy note-only answer duplicated its note in the display label"
 assert_contains "$answers_out" $'expanded-substring\tapprove\tUnsafe configuration - safe' \
   "expanded legacy answer mistook a label substring for its typed note"
 [ "$(printf '%s\n' "$answers_out" | wc -l | tr -d ' ')" = 3 ] \
@@ -3287,9 +3289,10 @@ cat > "$READ" <<'EOF'
 session:
   file: /review.html
   status: feedback
-prompts[2]{uid,prompt,selector,tag,text}:
+prompts[3]{uid,prompt,selector,tag,text}:
   "4","Context data: {\"question\":\"table-choice\",\"answer\":\"yes\"}","section#table",choice,"Yes · safe"
   "5","Context data: {\"schema\":\"fm-bearings-answer.v1\",\"question\":\"table-substring\",\"selection\":\"approve\",\"note\":\"safe\"}","section#table-substring",choice,"Unsafe configuration"
+  "6","Context data: {\"schema\":\"fm-bearings-answer.v1\",\"question\":\"table-note\",\"selection\":\"\",\"note\":\"Explain first\"}","section#table-note",choice,"Title -> Explain first"
 EOF
 out=$(read_out) || fail "read refused a valid tabular capture after the expanded case"
 assert_contains "$out" "complete: yes" "tabular capture regressed"
@@ -3299,6 +3302,10 @@ assert_contains "$answers_out" $'table-choice\tyes\tYes · safe' \
   "tabular keyed answer regressed"
 assert_contains "$answers_out" $'table-substring\tapprove\tUnsafe configuration - safe' \
   "tabular versioned answer mistook a label substring for its typed note"
+assert_contains "$answers_out" $'table-note\tExplain first\tTitle -> Explain first' \
+  "tabular versioned note-only answer did not reach keyed intake"
+assert_not_contains "$answers_out" $'table-note\tExplain first\tTitle -> Explain first - Explain first' \
+  "tabular versioned note-only answer duplicated its note in the display label"
 pass "tabular prompts still reach presentation and keyed intake"
 
 cat > "$READ" <<'EOF'

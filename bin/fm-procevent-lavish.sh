@@ -600,7 +600,6 @@ cmd_choice_rows() {
         next if length($selected) > 512 || length($note) > 512;
         next if $selected eq "reconcile" || index($selected, "reconcile - ") == 0;
         $answer = length($selected) ? $selected : $note;
-        $selected = "";
         $legacy = 1;
       } else {
         next;
@@ -614,7 +613,7 @@ cmd_choice_rows() {
       }
       my $label = defined $f{text} ? $f{text} : "";
       s/[\x00-\x1f\x7f]/ /g for ($answer, $note, $label);
-      if (length($note)) {
+      if (length($selected) && length($note)) {
         my $suffix = " - $note";
         my $represented = $label eq $note
           || length($label) >= length($suffix)
