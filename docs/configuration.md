@@ -627,8 +627,7 @@ This section is the single owner of the canonical schema.
         "package": "<npm package name to check against the registry>"
       },
       "brew": {
-        "formula": "<optional brew formula name>",
-        "cask": "<optional brew cask name>"
+        "cask": "<Homebrew cask name>"
       }
     }
   ]
@@ -644,8 +643,9 @@ A `git` entry reports how many commits the local clone is behind its remote bran
 An omitted `branch` uses the remote's default branch, taken from the clone's own record of it and otherwise asked of the remote directly, so a `--single-branch` clone still resolves.
 An `npm` entry requires `command`, queries the npm registry for the package's latest published version, and reports when it is newer than the installed version on PATH.
 This is the natural source for npm-published tools such as `lavish-axi`, `quota-axi`, `gh-axi`, `tasks-axi`, `chrome-devtools-axi`, and `backpass`.
-A `brew` entry uses `brew outdated` to check whether a Homebrew formula or cask has a newer version available; specify `formula` or `cask` (but not both) to name the Homebrew package.
+A `brew` entry uses `brew outdated` to check whether a Homebrew cask has a newer version available.
 This is the natural source for Homebrew-managed tools such as `herdr` and `codex`.
+For compatibility with existing command-only registries, same-name commands for those six npm packages default to their same-name npm source, while same-name `herdr` and `codex` commands default to their same-name Homebrew casks when neither source is explicit.
 All probe kinds are read-only and bounded, and a probe that cannot answer is reported as a check failure rather than assumed current.
 See [`docs/examples/watched-tools.json`](examples/watched-tools.json) for a starting point to copy into local `config/watched-tools.json`.
 

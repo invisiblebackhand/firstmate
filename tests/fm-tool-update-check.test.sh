@@ -513,19 +513,19 @@ test_npm_source_alongside_command_both_report() {
 
 # --- brew source ------------------------------------------------------------
 
-# make_brew_stub <dir> <formula> <version>: a brew stub that reports the given
-# formula as outdated with the given new version.
-make_brew_stub() {
-  local dir=$1 formula=$2 version=$3
+# make_brew_cask_stub <dir> <version>: a brew stub that reports the named cask
+# as outdated with the given new version.
+make_brew_cask_stub() {
+  local dir=$1 version=$2
   mkdir -p "$dir"
   cat > "$dir/brew" <<SH
 #!/usr/bin/env bash
 if [ "\${1:-}" = "outdated" ]; then
-  if [ "\${2:-}" = "--json=v2" ] && [ "\${3:-}" = "--formula" ] && [ "\${4:-}" = "$formula" ]; then
-    printf '{"formulae":[{"name":"$formula","installed_versions":["0.8.0"],"current_version":"$version"}],"casks":[]}\n'
+  if [ "\${2:-}" = "--json=v2" ] && [ "\${3:-}" = "--cask" ] && [ -n "\${4:-}" ]; then
+    printf '{"formulae":[],"casks":[{"name":"%s","installed_versions":["0.8.0"],"current_version":"$version"}]}\n' "\$4"
     exit 1
   else
-    printf '$formula\n'
+    printf 'unexpected brew arguments\n'
   fi
   exit 0
 fi
@@ -540,43 +540,38 @@ test_brew_newer_version_is_reported() {
   dir="$TMP_ROOT/brew-newer/bin"
   brew_dir="$TMP_ROOT/brew-newer/brew-bin"
   make_copy "$dir" "$TOOL" 'herdr 0.8.0'
-  make_brew_stub "$brew_dir" "$TOOL" '0.9.0'
-  write_config "$home" "{\"tools\":[{\"name\":\"herdr\",\"command\":\"$TOOL\",\"brew\":{\"formula\":\"$TOOL\"}}]}"
-  out="$home/out.txt"
-  run_check "$home" "$(fixture_path "$dir:$brew_dir")" "$out"
-  report=$(cat "$out")
-  assert_contains "$report" "herdr update available: brew has 0.9.0" "a brew source with a newer version was not reported"
-  assert_not_contains "$report" "check failed" "the brew probe reported a failure instead of the update"
-  pass "a brew source reports when brew outdated lists the formula"
-}
-
-test_brew_cask_newer_version_is_reported() {
-  local home dir brew_dir out report
-  home=$(make_home brew-cask)
-  dir="$TMP_ROOT/brew-cask/bin"
-  brew_dir="$TMP_ROOT/brew-cask/brew-bin"
-  make_copy "$dir" "$TOOL" 'herdr 0.8.0'
-  mkdir -p "$brew_dir"
-  cat > "$brew_dir/brew" <<SH
-#!/usr/bin/env bash
-if [ "\${1:-}" = "outdated" ]; then
-  if [ "\${2:-}" = "--json=v2" ] && [ "\${3:-}" = "--cask" ] && [ "\${4:-}" = "$TOOL" ]; then
-    printf '{"formulae":[],"casks":[{"name":"$TOOL","installed_versions":["0.8.0"],"current_version":"0.9.0"}]}\n'
-    exit 1
-  else
-    printf '$TOOL\n'
-  fi
-  exit 0
-fi
-exit 0
-SH
-  chmod 0755 "$brew_dir/brew"
+  make_brew_cask_stub "$brew_dir" '0.9.0'
   write_config "$home" "{\"tools\":[{\"name\":\"herdr\",\"command\":\"$TOOL\",\"brew\":{\"cask\":\"$TOOL\"}}]}"
   out="$home/out.txt"
   run_check "$home" "$(fixture_path "$dir:$brew_dir")" "$out"
   report=$(cat "$out")
   assert_contains "$report" "herdr update available: brew has 0.9.0" "a brew cask source with a newer version was not reported"
+  assert_not_contains "$report" "check failed" "the brew probe reported a failure instead of the update"
   pass "a brew cask source reports when brew outdated lists the cask"
+}
+
+test_command_only_builtin_sources_receive_defaults() {
+  local home dir curl_dir brew_dir out report tool
+  home=$(make_home builtin-sources)
+  dir="$TMP_ROOT/builtin-sources/bin"
+  curl_dir="$TMP_ROOT/builtin-sources/curl-bin"
+  brew_dir="$TMP_ROOT/builtin-sources/brew-bin"
+  for tool in lavish-axi quota-axi gh-axi tasks-axi chrome-devtools-axi backpass herdr codex; do
+    make_copy "$dir" "$tool" "$tool 0.8.0"
+  done
+  make_npm_stub "$curl_dir" '0.9.0'
+  make_brew_cask_stub "$brew_dir" '0.9.0'
+  write_config "$home" '{"tools":[{"name":"lavish-axi","command":"lavish-axi"},{"name":"quota-axi","command":"quota-axi"},{"name":"gh-axi","command":"gh-axi"},{"name":"tasks-axi","command":"tasks-axi"},{"name":"chrome-devtools-axi","command":"chrome-devtools-axi"},{"name":"backpass","command":"backpass"},{"name":"herdr","command":"herdr"},{"name":"codex","command":"codex"}]}'
+  out="$home/out.txt"
+  run_check "$home" "$(fixture_path "$dir:$curl_dir:$brew_dir")" "$out"
+  report=$(cat "$out")
+  for tool in lavish-axi quota-axi gh-axi tasks-axi chrome-devtools-axi backpass; do
+    assert_contains "$report" "$tool update available: installed 0.8.0 but npm has 0.9.0" "$tool command-only entry did not gain its npm source"
+  done
+  for tool in herdr codex; do
+    assert_contains "$report" "$tool update available: brew has 0.9.0" "$tool command-only entry did not gain its cask source"
+  done
+  pass "existing command-only entries gain every built-in comparison source"
 }
 
 test_brew_equal_version_is_silent() {
@@ -595,11 +590,11 @@ fi
 exit 0
 SH
   chmod 0755 "$brew_dir/brew"
-  write_config "$home" "{\"tools\":[{\"name\":\"herdr\",\"command\":\"$TOOL\",\"brew\":{\"formula\":\"$TOOL\"}}]}"
+  write_config "$home" "{\"tools\":[{\"name\":\"herdr\",\"command\":\"$TOOL\",\"brew\":{\"cask\":\"$TOOL\"}}]}"
   out="$home/out.txt"
   run_check "$home" "$(fixture_path "$dir:$brew_dir")" "$out"
   [ ! -s "$out" ] || fail "brew with no outdated listing produced a report: $(cat "$out")"
-  pass "a brew source with the formula not listed as outdated is silent"
+  pass "a brew source with the cask not listed as outdated is silent"
 }
 
 test_brew_not_installed_is_reported() {
@@ -607,7 +602,7 @@ test_brew_not_installed_is_reported() {
   home=$(make_home brew-absent)
   dir="$TMP_ROOT/brew-absent/bin"
   make_copy "$dir" "$TOOL" 'herdr 0.8.2'
-  write_config "$home" "{\"tools\":[{\"name\":\"herdr\",\"command\":\"$TOOL\",\"brew\":{\"formula\":\"$TOOL\"}}]}"
+  write_config "$home" "{\"tools\":[{\"name\":\"herdr\",\"command\":\"$TOOL\",\"brew\":{\"cask\":\"$TOOL\"}}]}"
   out="$home/out.txt"
   # Build a PATH with the fixture but no brew binary, so the test works on
   # hosts that have brew installed.
@@ -653,13 +648,13 @@ test_brew_unparseable_version_is_reported() {
   cat > "$brew_dir/brew" <<SH
 #!/usr/bin/env bash
 if [ "\${1:-}" = "outdated" ]; then
-  printf '{"formulae":[{"name":"$TOOL","installed_versions":["0.8.0"],"current_version":"not-a-version"}],"casks":[]}\n'
+  printf '{"formulae":[],"casks":[{"name":"$TOOL","installed_versions":["0.8.0"],"current_version":"not-a-version"}]}\n'
   exit 1
 fi
 exit 0
 SH
   chmod 0755 "$brew_dir/brew"
-  write_config "$home" "{\"tools\":[{\"name\":\"herdr\",\"command\":\"$TOOL\",\"brew\":{\"formula\":\"$TOOL\"}}]}"
+  write_config "$home" "{\"tools\":[{\"name\":\"herdr\",\"command\":\"$TOOL\",\"brew\":{\"cask\":\"$TOOL\"}}]}"
   out="$home/out.txt"
   run_check "$home" "$(fixture_path "$dir:$brew_dir")" "$out"
   report=$(cat "$out")
@@ -673,8 +668,8 @@ test_brew_probes_respect_the_sweep_budget() {
   dir="$TMP_ROOT/brew-budget/bin"
   brew_dir="$TMP_ROOT/brew-budget/brew-bin"
   make_slow_copy "$dir" "$TOOL" 30
-  make_brew_stub "$brew_dir" "$TOOL" '0.9.0'
-  write_config "$home" "{\"tools\":[{\"name\":\"herdr\",\"command\":\"$TOOL\",\"brew\":{\"formula\":\"$TOOL\"}}]}"
+  make_brew_cask_stub "$brew_dir" '0.9.0'
+  write_config "$home" "{\"tools\":[{\"name\":\"herdr\",\"command\":\"$TOOL\",\"brew\":{\"cask\":\"$TOOL\"}}]}"
   out="$home/out.txt"
   run_check "$home" "$(fixture_path "$dir:$brew_dir")" "$out" FM_TOOL_UPDATE_BUDGET_SECS=1
   report=$(cat "$out")
@@ -683,14 +678,14 @@ test_brew_probes_respect_the_sweep_budget() {
   pass "brew probes stop when the sweep budget is exhausted"
 }
 
-test_malformed_config_with_brew_needs_formula_or_cask() {
+test_malformed_config_with_brew_needs_cask() {
   local home out
   home=$(make_home brew-no-source)
-  write_config "$home" '{"tools":[{"name":"herdr","brew":{}}]}'
+  write_config "$home" '{"tools":[{"name":"herdr","brew":{"formula":"herdr"}}]}'
   out="$home/out.txt"
   run_check "$home" "$PATH" "$out"
-  assert_contains "$(cat "$out")" "tool herdr brew needs formula or cask" "a brew entry with no formula or cask was accepted"
-  pass "a brew entry without formula or cask is rejected"
+  assert_contains "$(cat "$out")" "tool herdr brew needs cask" "a formula-only brew entry was accepted"
+  pass "a brew entry without a cask is rejected"
 }
 
 test_malformed_config_with_npm_needs_command() {
@@ -760,7 +755,7 @@ fi
 exit 0
 SH
   chmod 0755 "$brew_dir/brew"
-  write_config "$home" "{\"tools\":[{\"name\":\"herdr\",\"command\":\"$TOOL\",\"brew\":{\"formula\":\"$TOOL\"}}]}"
+  write_config "$home" "{\"tools\":[{\"name\":\"herdr\",\"command\":\"$TOOL\",\"brew\":{\"cask\":\"$TOOL\"}}]}"
   out="$home/out.txt"
   run_check "$home" "$(fixture_path "$dir:$brew_dir")" "$out" FM_TOOL_UPDATE_PROBE_SECS=1
   report=$(cat "$out")
@@ -1405,13 +1400,13 @@ test_npm_unreachable_registry_is_reported
 test_npm_package_not_found_is_reported
 test_npm_source_alongside_command_both_report
 test_brew_newer_version_is_reported
-test_brew_cask_newer_version_is_reported
+test_command_only_builtin_sources_receive_defaults
 test_brew_equal_version_is_silent
 test_brew_not_installed_is_reported
 test_brew_probe_failure_is_reported
 test_brew_unparseable_version_is_reported
 test_brew_probes_respect_the_sweep_budget
-test_malformed_config_with_brew_needs_formula_or_cask
+test_malformed_config_with_brew_needs_cask
 test_malformed_config_with_npm_needs_command
 test_npm_older_version_is_silent
 test_npm_probe_timeout_is_reported

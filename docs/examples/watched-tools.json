@@ -15,6 +15,12 @@
       "brew": { "cask": "herdr" }
     },
     {
+      "name": "codex",
+      "command": "codex",
+      "version_args": ["--version"],
+      "brew": { "cask": "codex" }
+    },
+    {
       "name": "no-mistakes",
       "command": "no-mistakes",
       "version_args": ["--version"],
