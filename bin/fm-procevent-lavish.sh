@@ -614,7 +614,15 @@ cmd_choice_rows() {
       }
       my $label = defined $f{text} ? $f{text} : "";
       s/[\x00-\x1f\x7f]/ /g for ($answer, $note, $label);
-      $label .= " - $note" if length($note) && index($label, $note) < 0;
+      if (length($note) && (length($label) > 512 || index($label, $note) < 0)) {
+        my $note_at = index($label, $note);
+        $label = substr($label, 0, $note_at) if $note_at >= 0;
+        $label =~ s/\s*-\s*$//;
+        my $label_room = 512 - length($note) - 3;
+        $label = $label_room > 0 && length($label)
+          ? substr($label, 0, $label_room) . " - $note"
+          : $note;
+      }
       $label = substr($label, 0, 512);
       if (defined $seen{$key}) { $choices[$seen{$key}] = undef }
       $seen{$key} = scalar @choices;

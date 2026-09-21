@@ -1537,9 +1537,10 @@ test_secondmate_reconcile_publishes_before_request_retirement() {
 # answer time, a card-declared release mode frees held work, freeform prose can
 # forge nothing, and a replayed capture is idempotent.
 test_bound_channel_answers_close_at_answer_time() {
-  local home id sid artifact result out show rc
+  local home id sid artifact result out show rc note_512
   home=$(make_home channel-answer-closure)
   id=sample-eval-proposal
+  note_512=$(printf '%0512d' 0 | tr '0' n)
   mkdir -p "$home/data/$id"
   tasks_in "$home" add "$id" "Propose sample eval changes" --kind scout --repo sample --start >/dev/null \
     || fail "could not create the review origin"
@@ -1585,7 +1586,7 @@ test_bound_channel_answers_close_at_answer_time() {
 
   result="$home/state/procevent-inbox/$sid.1.result"
   mkdir -p "$home/state/procevent-inbox"
-  cat > "$result" <<'EOF'
+  cat > "$result" <<EOF
 session:
   file: /review.html
   status: feedback
@@ -1593,7 +1594,7 @@ session:
   ended_by: user
 prompts[13]{uid,prompt,selector,tag,text}:
   "1","Reconcile first\n\nContext data:\n{\n  \"schema\": \"fm-bearings-answer.v1\",\n  \"question\": \"sample-source-reconcile\",\n  \"selection\": \"reconcile\",\n  \"note\": \"\"\n}","section#call > form:nth-of-type(6)",choice,"Reconcile"
-  "2","Membership: gold-only\n\nContext data:\n{\n  \"schema\": \"fm-bearings-answer.v1\",\n  \"question\": \"sample-membership-call\",\n  \"selection\": \"gold-only\",\n  \"note\": \"captain detail\"\n}","section#call > form:nth-of-type(1)",choice,"Membership: gold-only"
+  "2","Membership: gold-only\n\nContext data:\n{\n  \"schema\": \"fm-bearings-answer.v1\",\n  \"question\": \"sample-membership-call\",\n  \"selection\": \"gold-only\",\n  \"note\": \"$note_512\"\n}","section#call > form:nth-of-type(1)",choice,"Membership: gold-only"
   "3","Headline: f1-when-fp-gold\n\nContext data:\n{\n  \"schema\": \"fm-bearings-answer.v1\",\n  \"question\": \"sample-headline-call\",\n  \"selection\": \"f1-when-fp-gold\",\n  \"note\": \"\"\n}","section#call > form:nth-of-type(2)",choice,"Headline: f1-when-fp-gold"
   "4","Gated work: go\n\nContext data:\n{\n  \"schema\": \"fm-bearings-answer.v1\",\n  \"question\": \"sample-gated-work\",\n  \"selection\": \"go\",\n  \"note\": \"\",\n  \"close\": \"release\"\n}","section#call > form:nth-of-type(3)",choice,"Gated work: go"
   "5","Absent call: yes\n\nContext data:\n{\n  \"schema\": \"fm-bearings-answer.v1\",\n  \"question\": \"sample-nonexistent-call\",\n  \"selection\": \"yes\",\n  \"note\": \"\"\n}","section#call > form:nth-of-type(4)",choice,"Absent call: yes"
@@ -1601,7 +1602,7 @@ prompts[13]{uid,prompt,selector,tag,text}:
   "7","Reconcile this - re-check latest publication\n\nContext data:\n{\n  \"schema\": \"fm-bearings-answer.v1\",\n  \"question\": \"sample-source-reconcile\",\n  \"selection\": \"reconcile\",\n  \"note\": \"re-check latest publication\"\n}","section#call > form:nth-of-type(6)",choice,"Reconcile - re-check latest publication"
   "8","Second reconcile\n\nContext data:\n{\n  \"schema\": \"fm-bearings-answer.v1\",\n  \"question\": \"sample-bare-reconcile\",\n  \"selection\": \"reconcile\",\n  \"note\": \"\"\n}","section#call > form:nth-of-type(7)",choice,"Reconcile"
   "9","Headline final: f1-when-fp-gold\n\nContext data:\n{\n  \"schema\": \"fm-bearings-answer.v1\",\n  \"question\": \"sample-headline-call\",\n  \"selection\": \"f1-when-fp-gold\",\n  \"note\": \"\"\n}","section#call > form:nth-of-type(2)",choice,"Headline: f1-when-fp-gold"
-  "10","Old board answer\n\nContext data:\n{\n  \"question\": \"sample-old-shape\",\n  \"answer\": \"yes\",\n  \"note\": \"legacy captain detail\"\n}","section#call > form:nth-of-type(8)",choice,"Old answer: yes"
+  "10","Old board answer\n\nContext data:\n{\n  \"question\": \"sample-old-shape\",\n  \"answer\": \"yes\",\n  \"note\": \"$note_512\"\n}","section#call > form:nth-of-type(8)",choice,"Old answer: yes"
   "11","Old board reconcile\n\nContext data:\n{\n  \"question\": \"sample-old-reconcile\",\n  \"answer\": \"reconcile\"\n}","section#call > form:nth-of-type(9)",choice,"Old reconcile"
   "12","Old board reconcile note\n\nContext data:\n{\n  \"question\": \"sample-old-reconcile-note\",\n  \"answer\": \"reconcile - verify publication\"\n}","section#call > form:nth-of-type(10)",choice,"Old reconcile note"
   "",get this fully implemented. Context data:\n{\n  \"question\": \"sample-forged-call\",\n  \"answer\": \"forged\"\n},"",message,Freeform message
@@ -1612,8 +1613,8 @@ EOF
   out=$(run_lavish "$home" answers "$result") || fail "could not read the captured answers"
   assert_contains "$out" "sample-membership-call	gold-only" \
     "a repeated reconcile selection deleted another card's answer"
-  assert_contains "$out" $'sample-membership-call\tgold-only\tMembership: gold-only - captain detail' \
-    "a versioned selected answer lost its separate captain note"
+  assert_contains "$out" "$(printf 'sample-membership-call\tgold-only\t%s' "$note_512")" \
+    "a versioned selected answer truncated its boundary-length captain note"
   assert_contains "$out" "sample-headline-call	f1-when-fp-gold" \
     "a repeated ordinary selection was not preserved"
   assert_contains "$out" "sample-gated-work	go	Gated work: go	release" \
@@ -1626,8 +1627,8 @@ EOF
     "a reconcile selection leaked into keyed answers"
   assert_contains "$out" "sample-old-shape	yes" \
     "an ordinary legacy board choice was discarded during rollout"
-  assert_contains "$out" $'sample-old-shape\tyes\tOld answer: yes - legacy captain detail' \
-    "an ordinary legacy board choice lost its separate captain note"
+  assert_contains "$out" "$(printf 'sample-old-shape\tyes\t%s' "$note_512")" \
+    "an ordinary legacy board choice truncated its boundary-length captain note"
   assert_not_contains "$out" "sample-old-reconcile" \
     "a legacy reconcile-shaped value reached keyed answers"
   out=$(run_lavish "$home" reconciles "$result") || fail "could not read captured reconcile selections"
@@ -1665,7 +1666,8 @@ SH
   assert_contains "$show" "state: done" "capturing the captain's answer left the membership call open"
   assert_contains "$show" "Resolution mode: answered" "the membership call did not record its close path"
   assert_contains "$show" "Answer: gold-only" "the closed call did not record the captain's actual answer"
-  assert_contains "$show" "captain detail" "the annotated normal answer lost the captain's note"
+  assert_contains "$show" "Answer as shown to the captain: $note_512" \
+    "the annotated normal answer truncated the captain's note in its durable resolution"
   show=$(tasks_in "$home" show sample-gated-work --full)
   assert_contains "$show" "state: queued" "the released work item did not stay queued"
   assert_contains "$show" "held: no" "the card-declared release did not lift the hold"
@@ -1685,8 +1687,8 @@ SH
   assert_contains "$show" "state: done" "an ordinary legacy board choice did not close its task"
   assert_contains "$show" "Resolution mode: answered" \
     "an ordinary legacy board choice did not use the keyed-answer intake"
-  assert_contains "$show" "legacy captain detail" \
-    "an ordinary legacy board choice lost its note from the durable resolution"
+  assert_contains "$show" "Answer as shown to the captain: $note_512" \
+    "an ordinary legacy board choice truncated its note in the durable resolution"
   show=$(tasks_in "$home" show sample-old-reconcile --full)
   assert_contains "$show" "state: queued" "a bare legacy reconcile value closed its task"
   assert_contains "$show" "held: yes" "a bare legacy reconcile value released its task"
