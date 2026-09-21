@@ -521,7 +521,11 @@ make_brew_stub() {
   cat > "$dir/brew" <<SH
 #!/usr/bin/env bash
 if [ "\${1:-}" = "outdated" ]; then
-  printf '$formula (0.8.0) $version\n'
+  if [ "\${2:-}" = "--verbose" ] && [ "\${3:-}" = "--formula" ] && [ "\${4:-}" = "$formula" ]; then
+    printf '$formula (0.8.0) $version\n'
+  else
+    printf '$formula\n'
+  fi
   exit 0
 fi
 exit 0
@@ -555,7 +559,11 @@ test_brew_cask_newer_version_is_reported() {
   cat > "$brew_dir/brew" <<SH
 #!/usr/bin/env bash
 if [ "\${1:-}" = "outdated" ]; then
-  printf '$TOOL (0.8.0) -> [latest] 0.9.0\n'
+  if [ "\${2:-}" = "--verbose" ] && [ "\${3:-}" = "--cask" ] && [ "\${4:-}" = "$TOOL" ]; then
+    printf '$TOOL (0.8.0) -> [latest] 0.9.0\n'
+  else
+    printf '$TOOL\n'
+  fi
   exit 0
 fi
 exit 0
@@ -612,6 +620,26 @@ test_brew_not_installed_is_reported() {
   pass "a brew source when brew is not installed is reported as a check failure"
 }
 
+test_brew_probe_failure_is_reported() {
+  local home dir brew_dir out report
+  home=$(make_home brew-failure)
+  dir="$TMP_ROOT/brew-failure/bin"
+  brew_dir="$TMP_ROOT/brew-failure/brew-bin"
+  make_copy "$dir" "$TOOL" 'herdr 0.8.2'
+  mkdir -p "$brew_dir"
+  cat > "$brew_dir/brew" <<'SH'
+#!/usr/bin/env bash
+exit 1
+SH
+  chmod 0755 "$brew_dir/brew"
+  write_config "$home" "{\"tools\":[{\"name\":\"herdr\",\"command\":\"$TOOL\",\"brew\":{\"cask\":\"$TOOL\"}}]}"
+  out="$home/out.txt"
+  run_check "$home" "$(fixture_path "$dir:$brew_dir")" "$out"
+  report=$(cat "$out")
+  assert_contains "$report" "herdr check failed: brew outdated failed for $TOOL" "a failed brew probe was treated as current"
+  pass "a failed brew probe is reported as a check failure"
+}
+
 test_brew_unparseable_version_is_reported() {
   local home dir brew_dir out report
   home=$(make_home brew-unparseable)
@@ -660,6 +688,16 @@ test_malformed_config_with_brew_needs_formula_or_cask() {
   run_check "$home" "$PATH" "$out"
   assert_contains "$(cat "$out")" "tool herdr brew needs formula or cask" "a brew entry with no formula or cask was accepted"
   pass "a brew entry without formula or cask is rejected"
+}
+
+test_malformed_config_with_npm_needs_command() {
+  local home out
+  home=$(make_home npm-no-command)
+  write_config "$home" '{"tools":[{"name":"herdr","npm":{"package":"herdr"}}]}'
+  out="$home/out.txt"
+  run_check "$home" "$PATH" "$out"
+  assert_contains "$(cat "$out")" "tool herdr npm needs command" "an npm entry without an installed version source was accepted"
+  pass "an npm entry without a command is rejected"
 }
 
 # --- additional npm and brew edge cases --------------------------------------
@@ -1367,9 +1405,11 @@ test_brew_newer_version_is_reported
 test_brew_cask_newer_version_is_reported
 test_brew_equal_version_is_silent
 test_brew_not_installed_is_reported
+test_brew_probe_failure_is_reported
 test_brew_unparseable_version_is_reported
 test_brew_probes_respect_the_sweep_budget
 test_malformed_config_with_brew_needs_formula_or_cask
+test_malformed_config_with_npm_needs_command
 test_npm_older_version_is_silent
 test_npm_probe_timeout_is_reported
 test_brew_probe_timeout_is_reported

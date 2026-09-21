@@ -614,7 +614,7 @@ This section is the single owner of the canonical schema.
   "tools": [
     {
       "name": "<label used in the report>",
-      "command": "<optional bare executable name to find on PATH>",
+      "command": "<optional bare executable name to find on PATH; required with npm>",
       "version_args": ["<optional args that make it print its version, default --version>"],
       "announce_pattern": "<optional extended regex matching the tool's own update announcement>",
       "announce_args": ["<optional args for the command that carries that announcement, default version_args>"],
@@ -642,7 +642,7 @@ A tool does not always announce a new release on the command that prints its ver
 An `announce_pattern` that is not a usable extended regular expression stops `arm`, and during a sweep it is reported as that one tool's own check failure so one broken pattern never stops the other watched tools from being checked.
 A `git` entry reports how many commits the local clone is behind its remote branch, and stays silent when the clone is current or ahead.
 An omitted `branch` uses the remote's default branch, taken from the clone's own record of it and otherwise asked of the remote directly, so a `--single-branch` clone still resolves.
-An `npm` entry queries the npm registry for the package's latest published version and reports when it is newer than the installed version on PATH.
+An `npm` entry requires `command`, queries the npm registry for the package's latest published version, and reports when it is newer than the installed version on PATH.
 This is the natural source for npm-published tools such as `lavish-axi`, `quota-axi`, `gh-axi`, `tasks-axi`, `chrome-devtools-axi`, and `backpass`.
 A `brew` entry uses `brew outdated` to check whether a Homebrew formula or cask has a newer version available; specify `formula` or `cask` (but not both) to name the Homebrew package.
 This is the natural source for Homebrew-managed tools such as `herdr` and `codex`.

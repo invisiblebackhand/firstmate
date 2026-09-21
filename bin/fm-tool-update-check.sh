@@ -329,6 +329,7 @@ config_validate() {
       elif ($t | has("git")) and ($t.git | has("branch")) and (($t.git.branch | type) != "string" or ($t.git.branch | test("^[A-Za-z0-9._/-]+$") | not)) then "tool \($t.name) git.branch must be a simple branch name"
       elif ($t | has("npm")) and (($t.npm | type) != "object") then "tool \($t.name) npm must be an object"
       elif ($t | has("npm")) and (($t.npm.package | type) != "string" or ($t.npm.package | length) == 0 or ($t.npm.package | test("^[A-Za-z0-9._@/-]+$") | not)) then "tool \($t.name) npm.package must be a valid npm package name"
+      elif ($t | has("npm")) and (($t | has("command")) | not) then "tool \($t.name) npm needs command"
       elif ($t | has("brew")) and (($t.brew | type) != "object") then "tool \($t.name) brew must be an object"
       elif ($t | has("brew")) and ($t.brew | has("formula")) and (($t.brew.formula | type) != "string" or ($t.brew.formula | length) == 0 or ($t.brew.formula | test("^[A-Za-z0-9._+-]+$") | not)) then "tool \($t.name) brew.formula must be a valid brew formula name"
       elif ($t | has("brew")) and ($t.brew | has("cask")) and (($t.brew.cask | type) != "string" or ($t.brew.cask | length) == 0 or ($t.brew.cask | test("^[A-Za-z0-9._+-]+$") | not)) then "tool \($t.name) brew.cask must be a valid brew cask name"
@@ -541,23 +542,19 @@ npm_findings() {
     emit "$name check failed: npm registry returned no version for $package"
     return 0
   fi
-  # Compare against the installed version on PATH when the tool declares a
-  # command. Without a command we have nothing to compare against.
-  if [ -n "$command_name" ]; then
-    hits=$(path_hits "$command_name")
-    if [ -n "$hits" ]; then
-      hit=$(printf '%s' "$hits" | head -n 1)
-      if [ -n "$hit" ]; then
-        if budget_exhausted; then
-          emit "$name check failed: the time budget ran out before $command_name answered"
-          return 0
-        fi
-        # shellcheck disable=SC2086  # deliberate split on validated space-free tokens
-        out=$(probe_output "$hit" $args_joined)
-        installed=$(parse_version "$out")
-        if [ -n "$installed" ] && version_newer "$latest" "$installed"; then
-          emit "$name update available: installed $installed but npm has $latest"
-        fi
+  hits=$(path_hits "$command_name")
+  if [ -n "$hits" ]; then
+    hit=$(printf '%s' "$hits" | head -n 1)
+    if [ -n "$hit" ]; then
+      if budget_exhausted; then
+        emit "$name check failed: the time budget ran out before $command_name answered"
+        return 0
+      fi
+      # shellcheck disable=SC2086  # deliberate split on validated space-free tokens
+      out=$(probe_output "$hit" $args_joined)
+      installed=$(parse_version "$out")
+      if [ -n "$installed" ] && version_newer "$latest" "$installed"; then
+        emit "$name update available: installed $installed but npm has $latest"
       fi
     fi
   fi
@@ -568,7 +565,7 @@ npm_findings() {
 
 brew_findings() {
   local name=$1 formula=$2 cask=$3
-  local status brew_target new_version line
+  local status brew_target brew_kind new_version line
 
   budget_allows "$name" || return 0
   if ! command -v brew >/dev/null 2>&1; then
@@ -577,15 +574,24 @@ brew_findings() {
   fi
   if [ -n "$formula" ]; then
     brew_target="$formula"
+    brew_kind=--formula
   else
     brew_target="$cask"
+    brew_kind=--cask
   fi
-  # brew outdated lists all outdated items; filter for our specific formula/cask.
   local brew_out
-  brew_out=$(fm_run_timed "$(probe_bound)" brew outdated 2>/dev/null)
+  brew_out=$(fm_run_timed "$(probe_bound)" brew outdated --verbose "$brew_kind" "$brew_target" 2>/dev/null)
   status=$?
+  if [ "$status" -eq 124 ]; then
+    emit "$name check failed: brew outdated did not answer"
+    return 0
+  fi
+  if [ "$status" -ne 0 ]; then
+    emit "$name check failed: brew outdated failed for $brew_target"
+    return 0
+  fi
   line=
-  if [ "$status" -ne 124 ] && [ -n "$brew_out" ]; then
+  if [ -n "$brew_out" ]; then
     while IFS= read -r out_line; do
       if [[ "$out_line" == "$brew_target "* ]]; then
         line="$out_line"
@@ -593,12 +599,10 @@ brew_findings() {
       fi
     done <<< "$brew_out"
   fi
-  if [ "$status" -eq 124 ]; then
-    emit "$name check failed: brew outdated did not answer"
-    return 0
-  fi
   if [ -z "$line" ]; then
-    # Not listed in outdated = up to date (or brew itself failed).
+    if [ -n "$brew_out" ]; then
+      emit "$name check failed: brew outdated returned unexpected output for $brew_target"
+    fi
     return 0
   fi
   # Parse the new version from the line.
