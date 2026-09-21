@@ -614,14 +614,20 @@ cmd_choice_rows() {
       }
       my $label = defined $f{text} ? $f{text} : "";
       s/[\x00-\x1f\x7f]/ /g for ($answer, $note, $label);
-      if (length($note) && (length($label) > 512 || index($label, $note) < 0)) {
-        my $note_at = index($label, $note);
-        $label = substr($label, 0, $note_at) if $note_at >= 0;
-        $label =~ s/\s*-\s*$//;
-        my $label_room = 512 - length($note) - 3;
-        $label = $label_room > 0 && length($label)
-          ? substr($label, 0, $label_room) . " - $note"
-          : $note;
+      if (length($note)) {
+        my $suffix = " - $note";
+        my $represented = $label eq $note
+          || length($label) >= length($suffix)
+            && substr($label, -length($suffix)) eq $suffix;
+        if (!$represented || length($label) > 512) {
+          my $base = $represented && $label ne $note
+            ? substr($label, 0, length($label) - length($suffix))
+            : $represented ? "" : $label;
+          my $label_room = 512 - length($note) - 3;
+          $label = $label_room > 0 && length($base)
+            ? substr($base, 0, $label_room) . $suffix
+            : $note;
+        }
       }
       $label = substr($label, 0, 512);
       if (defined $seen{$key}) { $choices[$seen{$key}] = undef }

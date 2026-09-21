@@ -3233,7 +3233,7 @@ session:
   file: /review.html
   status: feedback
   session_ended: true
-prompts[3]:
+prompts[4]:
   - uid: "1"
     prompt: "Context data: {\"question\":\"expanded-choice\",\"answer\":\"approve\",\"note\":\"Typed reason · checked\"}"
     selector: "section#choice"
@@ -3255,10 +3255,15 @@ prompts[3]:
     selector: "section#note"
     tag: choice
     text: "Other"
+  - uid: "4"
+    prompt: "Context data: {\"question\":\"expanded-substring\",\"answer\":\"approve\",\"note\":\"safe\"}"
+    selector: "section#substring"
+    tag: choice
+    text: "Unsafe configuration"
 EOF
 out=$(read_out) || fail "read refused a valid expanded capture"
-assert_contains "$out" "declared_items: 3" "expanded capture lost its declared count"
-assert_contains "$out" "presented_items: 3" "expanded capture dropped an item"
+assert_contains "$out" "declared_items: 4" "expanded capture lost its declared count"
+assert_contains "$out" "presented_items: 4" "expanded capture dropped an item"
 assert_contains "$out" "complete: yes" "expanded capture was not certified complete"
 assert_contains "$out" "target_rowLabel:" "expanded table target lost its row label"
 assert_contains "$out" "| Orders" "expanded table target lost its row value"
@@ -3272,16 +3277,19 @@ assert_contains "$answers_out" $'expanded-choice\tapprove\tApprove - Typed reaso
   "expanded selected answer lost its typed rationale before keyed intake"
 assert_contains "$answers_out" $'expanded-note\tExplain first\tOther' \
   "expanded note-only answer did not reach keyed intake"
-[ "$(printf '%s\n' "$answers_out" | wc -l | tr -d ' ')" = 2 ] \
-  || fail "expanded choices did not produce exactly two keyed answers"
+assert_contains "$answers_out" $'expanded-substring\tapprove\tUnsafe configuration - safe' \
+  "expanded legacy answer mistook a label substring for its typed note"
+[ "$(printf '%s\n' "$answers_out" | wc -l | tr -d ' ')" = 3 ] \
+  || fail "expanded choices did not produce exactly three keyed answers"
 pass "expanded prompts preserve nested targets, typed notes, and keyed answers"
 
 cat > "$READ" <<'EOF'
 session:
   file: /review.html
   status: feedback
-prompts[1]{uid,prompt,selector,tag,text}:
+prompts[2]{uid,prompt,selector,tag,text}:
   "4","Context data: {\"question\":\"table-choice\",\"answer\":\"yes\"}","section#table",choice,"Yes · safe"
+  "5","Context data: {\"schema\":\"fm-bearings-answer.v1\",\"question\":\"table-substring\",\"selection\":\"approve\",\"note\":\"safe\"}","section#table-substring",choice,"Unsafe configuration"
 EOF
 out=$(read_out) || fail "read refused a valid tabular capture after the expanded case"
 assert_contains "$out" "complete: yes" "tabular capture regressed"
@@ -3289,6 +3297,8 @@ answers_out=$("$ROOT/bin/fm-procevent-lavish.sh" answers "$READ") \
   || fail "answers refused a valid tabular capture"
 assert_contains "$answers_out" $'table-choice\tyes\tYes · safe' \
   "tabular keyed answer regressed"
+assert_contains "$answers_out" $'table-substring\tapprove\tUnsafe configuration - safe' \
+  "tabular versioned answer mistook a label substring for its typed note"
 pass "tabular prompts still reach presentation and keyed intake"
 
 cat > "$READ" <<'EOF'
