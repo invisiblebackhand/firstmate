@@ -532,6 +532,13 @@ cmd_silent() {
   [ "$content_rc" -eq 1 ]
 }
 
+lifecycle_allows_empty_content() {
+  case "$1" in
+    ended|waiting|missing|disconnected) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 # Print `key<TAB>answer<TAB>label[<TAB>mode]` for each non-reconcile structured choice the
 # captain submitted in a captured result; the optional mode column relays the
 # card's declared close mode (`done` or `release`) to the keyed-answer intake.
@@ -607,6 +614,7 @@ cmd_choice_rows() {
       }
       my $label = defined $f{text} ? $f{text} : "";
       s/[\x00-\x1f\x7f]/ /g for ($answer, $note, $label);
+      $label .= " - $note" if length($note) && index($label, $note) < 0;
       $label = substr($label, 0, 512);
       if (defined $seen{$key}) { $choices[$seen{$key}] = undef }
       $seen{$key} = scalar @choices;
@@ -630,7 +638,7 @@ cmd_choice_rows() {
         ? "$choice->{key}\t$choice->{answer}\t$choice->{label}\t$choice->{mode}\n"
         : "$choice->{key}\t$choice->{answer}\t$choice->{label}\n";
     }
-  ' "$SCRIPT_DIR/fm-procevent-lavish-rows.pl" "$selection" "$file" "$([ "$lifecycle" = ended ] && printf 1 || printf 0)"
+  ' "$SCRIPT_DIR/fm-procevent-lavish-rows.pl" "$selection" "$file" "$(lifecycle_allows_empty_content "$lifecycle" && printf 1 || printf 0)"
 }
 
 cmd_answers() { cmd_choice_rows answers "$@"; }
@@ -653,8 +661,8 @@ cmd_read() {
   perl -e '
     use strict; use warnings;
     require shift @ARGV;
-    my ($path, $lifecycle, $session_ended) = @ARGV;
-    my ($want, $parsed, $malformed) = lavish_rows($path, $lifecycle eq "ended");
+    my ($path, $lifecycle, $session_ended, $allow_empty) = @ARGV;
+    my ($want, $parsed, $malformed) = lavish_rows($path, $allow_empty);
     binmode STDOUT, ":utf8";
     my $presented = scalar @$parsed;
     my $complete = ($presented == $want && !$malformed) ? "yes" : "no";
@@ -745,7 +753,7 @@ cmd_read() {
       print "ANNOTATIONS: (none)\n";
     }
     print "END LAVISH RESULT ($presented of $want)\n";
-  ' "$SCRIPT_DIR/fm-procevent-lavish-rows.pl" "$file" "$lifecycle" "$session_ended"
+  ' "$SCRIPT_DIR/fm-procevent-lavish-rows.pl" "$file" "$lifecycle" "$session_ended" "$(lifecycle_allows_empty_content "$lifecycle" && printf 1 || printf 0)"
 }
 
 case "${1-}" in

@@ -3188,6 +3188,43 @@ assert_contains "$out" "SESSION-ENDING MESSAGE: (none)" \
 assert_contains "$out" "ANNOTATIONS: (none)" "an empty board close invented annotations"
 pass "read distinguishes a feedback capture from an ended-with-nothing close"
 
+for lifecycle_case in waiting disconnected missing ended; do
+  case "$lifecycle_case" in
+    waiting) printf 'session:\n  file: /review.html\n  status: waiting\n' > "$READ" ;;
+    disconnected) printf 'session:\n  file: /review.html\n  status: browser_disconnected\n' > "$READ" ;;
+    missing) printf 'error: No active Lavish Editor session\ncode: NOT_FOUND\n' > "$READ" ;;
+    ended) printf 'session:\n  file: /review.html\n  status: ended\n' > "$READ" ;;
+  esac
+  out=$(read_out) || fail "read refused an empty $lifecycle_case capture"
+  assert_contains "$out" "lifecycle: $lifecycle_case" \
+    "read did not present the empty $lifecycle_case lifecycle"
+  answers_out=$("$ROOT/bin/fm-procevent-lavish.sh" answers "$READ") \
+    || fail "answers refused an empty $lifecycle_case capture"
+  [ -z "$answers_out" ] || fail "answers invented rows for an empty $lifecycle_case capture"
+  reconciles_out=$("$ROOT/bin/fm-procevent-lavish.sh" reconciles "$READ") \
+    || fail "reconciles refused an empty $lifecycle_case capture"
+  [ -z "$reconciles_out" ] || fail "reconciles invented rows for an empty $lifecycle_case capture"
+done
+
+for invalid_empty_case in feedback unknown; do
+  case "$invalid_empty_case" in
+    feedback) printf 'session:\n  file: /review.html\n  status: feedback\n' > "$READ" ;;
+    unknown) printf 'garbage that is not a session block\n' > "$READ" ;;
+  esac
+  out=$(read_out 2>&1) && fail "read accepted an empty $invalid_empty_case capture"
+  assert_contains "$out" "cannot read Lavish content block" \
+    "read did not explain its empty $invalid_empty_case refusal"
+  answers_out=$("$ROOT/bin/fm-procevent-lavish.sh" answers "$READ" 2>&1) \
+    && fail "answers accepted an empty $invalid_empty_case capture"
+  assert_contains "$answers_out" "cannot read Lavish content block" \
+    "answers did not explain its empty $invalid_empty_case refusal"
+  reconciles_out=$("$ROOT/bin/fm-procevent-lavish.sh" reconciles "$READ" 2>&1) \
+    && fail "reconciles accepted an empty $invalid_empty_case capture"
+  assert_contains "$reconciles_out" "cannot read Lavish content block" \
+    "reconciles did not explain its empty $invalid_empty_case refusal"
+done
+pass "empty content follows the lifecycle contract across every reader"
+
 # One nested target makes Lavish encode the entire prompts block as expanded
 # mappings. Choices in that block must still reach both presentation and keyed
 # intake, including the older answer/note context emitted by captured boards.
@@ -3231,8 +3268,8 @@ assert_contains "$out" "| Typed reason · checked" "expanded choice lost its typ
 assert_contains "$out" "| Explain first" "expanded note-only choice lost its typed note"
 answers_out=$("$ROOT/bin/fm-procevent-lavish.sh" answers "$READ") \
   || fail "answers refused a valid expanded capture"
-assert_contains "$answers_out" $'expanded-choice\tapprove\tApprove' \
-  "expanded selected answer did not reach keyed intake"
+assert_contains "$answers_out" $'expanded-choice\tapprove\tApprove - Typed reason · checked' \
+  "expanded selected answer lost its typed rationale before keyed intake"
 assert_contains "$answers_out" $'expanded-note\tExplain first\tOther' \
   "expanded note-only answer did not reach keyed intake"
 [ "$(printf '%s\n' "$answers_out" | wc -l | tr -d ' ')" = 2 ] \
