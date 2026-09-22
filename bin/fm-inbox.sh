@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # fm-inbox.sh - the captain's out-of-band capture surface.
+# Bounded note and status previews preserve complete UTF-8 characters.
 #
 # Solves three DIFFERENT problems with three different mechanisms, because they
 # are not the same problem:
@@ -280,8 +281,18 @@ read_note_body() {  # <file>
   awk 'found { print; next } /^--$/ { found=1 }' "$1"
 }
 
+utf8_truncate() {  # <cap>
+  perl -MEncode=decode -e '
+    binmode STDIN, ":raw";
+    binmode STDOUT, ":encoding(UTF-8)";
+    local $/;
+    my $text = decode("UTF-8", scalar <STDIN>);
+    print substr($text, 0, $ARGV[0]);
+  ' "$1"
+}
+
 note_summary_from_body() {
-  printf '%s' "$1" | tr '\n\t' '  ' | cut -c1-100
+  printf '%s' "$1" | tr '\n\t' '  ' | utf8_truncate 100
 }
 
 write_note_file() {  # <path> <id> <source> <body> [extra] [request-id]
@@ -1050,7 +1061,7 @@ cmd_status() {
   if [ -f "$DATA/backlog.md" ]; then
     printf '\n--- in flight ---\n'
     awk '/^## In flight/{f=1;next} /^## /{f=0} f && /^- \[/{print}' \
-      "$DATA/backlog.md" | sed 's/^- \[ \] /  /' | cut -c1-150
+      "$DATA/backlog.md" | sed 's/^- \[ \] /  /' | utf8_truncate 150
   else
     printf '\n(no backlog at %s)\n' "$DATA/backlog.md"
   fi
@@ -1064,7 +1075,7 @@ cmd_status() {
     kind=$(sed -n 's/^kind=//p' "$m" | head -1)
     mode=$(sed -n 's/^mode=//p' "$m" | head -1)
     last=""
-    [ -f "$STATE/$id.status" ] && last=$(tail -1 "$STATE/$id.status" 2>/dev/null | cut -c1-100)
+    [ -f "$STATE/$id.status" ] && last=$(tail -1 "$STATE/$id.status" 2>/dev/null | utf8_truncate 100)
     printf '  %-42s %-6s %-10s %s\n' "$id" "${kind:-?}" "${mode:--}" "${last:-(no events yet)}"
   done
   [ "$any" -eq 1 ] || printf '\n(no workers on deck)\n'

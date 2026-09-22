@@ -544,3 +544,36 @@ run_inbox "$home" drain --ack "$did" >/dev/null || fail "drain --ack failed"
 assert_absent "$home/state/inbox/$did.note" "acked note leaves pending"
 assert_present "$home/state/inbox/handled/$did.note" "acked note is in handled"
 pass "drain --ack still moves the note to handled"
+
+# Every bounded preview crosses a multibyte boundary under the byte-counting
+# locale without leaving an invalid fragment in a wake or the status display.
+home=$(make_home utf8-previews)
+note_preview=$(perl -CS -e 'print "a" x 99, "\x{00e9}", "tail"')
+LC_ALL=C run_inbox "$home" note "$note_preview" >/dev/null \
+  || fail "UTF-8 note preview could not be queued"
+if ! python3 - "$home/state/.wake-queue" <<'PY'
+import pathlib, sys
+text = pathlib.Path(sys.argv[1]).read_bytes().decode("utf-8")
+assert "a" * 99 + "é" in text
+assert "tail" not in text
+PY
+then
+  fail "note wake split or miscounted its UTF-8 preview"
+fi
+cat > "$home/data/backlog.md" <<EOF
+## In flight
+
+- [ ] $(perl -CS -e 'print "b" x 147, "\x{00e9}", "tail"')
+
+## Queued
+EOF
+fm_write_meta "$home/state/utf8.meta" 'kind=ship' 'mode=no-mistakes'
+printf 'done: %s\n' "$(perl -CS -e 'print "c" x 93, "\x{00e9}", "tail"')" > "$home/state/utf8.status"
+status_out=$(LC_ALL=C run_inbox "$home" status) || fail "UTF-8 status view failed"
+printf '%s' "$status_out" | python3 -c 'import sys; sys.stdin.buffer.read().decode("utf-8")' \
+  || fail "status view split a UTF-8 character"
+assert_contains "$status_out" "$(perl -CS -e 'print "b" x 147, "\x{00e9}"')" \
+  "backlog preview did not retain its complete boundary character"
+assert_contains "$status_out" "$(perl -CS -e 'print "c" x 93, "\x{00e9}"')" \
+  "status preview did not retain its complete boundary character"
+pass "bounded inbox previews preserve UTF-8 characters under the C locale"

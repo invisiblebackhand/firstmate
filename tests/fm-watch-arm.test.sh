@@ -841,6 +841,31 @@ test_arm_refuses_an_unusable_launch_confirm_window() {
   pass "watch-arm: an unusable launch confirm window refuses to arm by name"
 }
 
+test_delivery_ledger_preserves_utf8_reason() {
+  local dir state reason out
+  dir=$(make_case utf8-delivery-reason)
+  state="$dir/state"
+  reason=$(perl -CS -e 'print "a" x 4095, "\x{00e9}", "tail"')
+  out=$(LC_ALL=C FM_STATE_OVERRIDE="$state" bash -c '
+    . "$1"
+    FM_WATCH_DELIVERY_PID=1
+    FM_WATCH_DELIVERY_IDENTITY=fixture
+    watch_delivery_publish "$2"
+  ' _ "$ROOT/bin/fm-push-transition-lib.sh" "$reason")
+  printf '%s' "$out" | python3 -c 'import sys; sys.stdin.buffer.read().decode("utf-8")' \
+    || fail "delivery ledger writer split a UTF-8 character"
+  if ! python3 - "$state/.watch-deliveries.log" <<'PY'
+import pathlib, sys
+text = pathlib.Path(sys.argv[1]).read_bytes().decode("utf-8")
+assert "a" * 4095 + "é" in text
+assert "tail" not in text
+PY
+  then
+    fail "delivery ledger writer miscounted its UTF-8 boundary"
+  fi
+  pass "watch delivery ledger preserves UTF-8 reasons under the C locale"
+}
+
 test_attached_arm_reports_the_delivered_wake
 test_attached_arm_reports_the_delivered_wake_after_drain
 test_arm_refuses_an_unusable_launch_confirm_window
@@ -856,3 +881,4 @@ test_markerless_legacy_queue_is_recovered_on_arm
 test_handling_window_close_keeps_the_acknowledgement_valid
 test_moved_generation_acknowledgement_is_self_healing
 test_downtime_marker_does_not_follow_symlink
+test_delivery_ledger_preserves_utf8_reason
