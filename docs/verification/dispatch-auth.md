@@ -139,9 +139,9 @@ No models matching "gpt-9.9-nonexistent"
 
 A listing that reaches the account and returns no row is the authoritative negative that does block a candidate.
 
-## Pi's openai-codex readiness check does not prove its request path (task fm-pi-codex-auth)
+## Pi openai-codex readiness check does not prove its request path
 
-Established 2026-09-21 (task fm-pi-codex-auth) against the fleet's then-installed Pi, immediately after a fresh `codex login` restored the account's full weekly quota.
+Established 2026-09-21 against Pi 0.87.0, immediately after a fresh `codex login` restored the account's full weekly quota.
 Every Pi worker dispatched on `harness=pi model=openai-codex/*` died on its first model call with `Error: Provided authentication token is expired.`, while every other surface on the same account read healthy:
 
 ```sh

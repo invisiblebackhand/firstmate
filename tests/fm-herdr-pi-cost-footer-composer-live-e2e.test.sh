@@ -20,9 +20,10 @@
 #
 # Always runs on a private, named, throwaway lab session, never the default
 # one (tests/herdr-test-safety.sh; bin/fm-herdr-lab.sh owns the isolation).
-# Launched with the repo root as cwd (already trusted by ordinary fleet
-# operation) so a first-run trust dialog never competes with the composer
-# read this guard is about.
+# Project-local resources are disabled for this run, so a fresh gate worktree
+# cannot park on Pi's trust dialog and the guard does not persist a trust choice
+# in the operator's user data. Session persistence is disabled for the same
+# reason. Neither setting changes Pi's composer or its native Herdr identity.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -75,7 +76,8 @@ registered_status() {
   herdr agent get "$PANE_ID" --session "$SESSION" 2>/dev/null | jq -r '.result.agent.agent_status // empty'
 }
 
-lab pane run "$PANE_ID" pi >/dev/null 2>&1 || fail "could not start pi in the pane"
+lab pane run "$PANE_ID" pi --no-approve --no-session >/dev/null 2>&1 \
+  || fail "could not start pi in the pane"
 
 STATUS=
 for _ in $(seq 1 300); do

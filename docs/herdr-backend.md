@@ -262,6 +262,7 @@ The adapter is a thin capture: it hands a bounded ANSI tail plus Herdr's capabil
 A blocked Pi is parked on an interactive prompt, so its blank composer region is a menu's and not a free composer's; that state defers instead of proving emptiness.
 A working Pi, pending middle row, missing identity, incomplete separator pair, or over-tall candidate remains unknown or pending.
 Identity stays a lazy second read, consulted only when a separator pair could change the verdict.
+Pi's structurally exact cost-and-mode footer below that pair is TUI furniture even though its dollar amount begins with the shell-prompt glyph `$`; any dollar-leading near miss remains dead-shell evidence and refuses injection.
 
 ANSI capture preserves de-emphasized placeholder style.
 `bin/fm-composer-lib.sh` is the fleet-wide owner that strips dim or faint runs and dark truecolor placeholders while retaining bright typed input.
@@ -358,6 +359,7 @@ Tests use thin compatibility wrappers in `tests/herdr-test-safety.sh` and never 
 ```sh
 tests/fm-backend-herdr.test.sh
 tests/fm-composer-lib.test.sh
+tests/fm-herdr-pi-cost-footer-composer-live-e2e.test.sh
 tests/fm-herdr-submit-confirm-live-e2e.test.sh
 tests/fm-backend-herdr-smoke.test.sh
 tests/fm-backend-herdr-prune-safety-e2e.test.sh
