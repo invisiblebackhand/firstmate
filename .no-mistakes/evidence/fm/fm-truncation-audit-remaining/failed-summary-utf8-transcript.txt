@@ -1,0 +1,21 @@
+Scenario: failed summary producer diagnostic at the UTF-8 boundary
+current_exit=1
+current_utf8_valid=true
+current_diagnostic_characters=500
+current_diagnostic_bytes=507
+current_suffix='aaaa  é漢界終'
+current_boundary_exact=true
+
+Scenario: retained control folding
+controls_exit=1
+controls_utf8_valid=true
+controls_diagnostic_characters=500
+controls_suffix='bbbbb é 漢 '
+tab_cr_lf_folded_to_single_spaces=true
+
+Counterfactual: base revision with LC_ALL=C cut -c1-500
+legacy_exit=1
+legacy_utf8_valid=false
+legacy_diagnostic_bytes=500
+legacy_decode_error=unexpected end of data at byte 560
+same_valid_utf8_assertion_result=FAIL

@@ -1,0 +1,2 @@
+EXPECTED PRE-CHANGE FAILURE: 'utf-8' codec can't decode bytes in position 498-499: invalid continuation byte; bytes=501
+counterfactual_rc=0
