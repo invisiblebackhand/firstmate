@@ -1537,7 +1537,7 @@ test_secondmate_reconcile_publishes_before_request_retirement() {
 # answer time, a card-declared release mode frees held work, freeform prose can
 # forge nothing, and a replayed capture is idempotent.
 test_bound_channel_answers_close_at_answer_time() {
-  local home id sid artifact result out show rc note_512 unicode_note
+  local home id sid artifact result out show rc note_512 unicode_note unicode_intake_512 unicode_intake_513
   home=$(make_home channel-answer-closure)
   id=sample-eval-proposal
   note_512=$(perl -CS -e 'print "\x{00e9}" x 512')
@@ -1738,6 +1738,19 @@ SH
     || fail "could not deliberately close the bare legacy reconcile call"
   run_captain "$home" answer sample-old-reconcile-note --decision-file "$home/invalid-close.txt" >/dev/null \
     || fail "could not deliberately close the annotated legacy reconcile call"
+  tasks_in "$home" add sample-unicode-intake-call "Record a UTF-8 rationale" \
+    --kind captain --repo sample >/dev/null \
+    || fail "could not create the UTF-8 keyed-intake fixture"
+  run_captain "$home" hold sample-unicode-intake-call --reason "captain rationale pending" >/dev/null \
+    || fail "could not hold the UTF-8 keyed-intake fixture"
+  unicode_intake_512=$(perl -CS -e 'print "\x{00e9}" x 512')
+  unicode_intake_513=$(perl -CS -e 'print "\x{00e9}" x 513')
+  printf 'sample-unicode-intake-call\t%s\t\n' "$unicode_intake_513" \
+    | LC_ALL=C run_captain "$home" answers --source "UTF-8 keyed intake fixture" >/dev/null \
+    || fail "the UTF-8 keyed intake could not close its held task"
+  show=$(tasks_in "$home" show sample-unicode-intake-call --full)
+  assert_contains "$show" "Answer: $unicode_intake_512" \
+    "the keyed intake did not use its 512-character cap under the C locale"
   run_captain "$home" verify "$id" >/dev/null \
     || fail "answered calls did not satisfy the completion gate"
   pass "a bound channel's captured answers close their captain-held tasks at answer time"
