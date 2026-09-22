@@ -1,0 +1,7 @@
+live-safety-boundary	simulation-only	Safety boundary -> simulation-only - Agent-touched code must not connect to live order routing.
+live-market-timezone	exchange-time	Market timestamps -> exchange-time - State the timezone explicitly.
+live-data-gaps	surface-gaps	Missing market data -> surface-gaps - Never silently pad or interpolate.
+live-review-scope	expanded-captures	Review scope -> expanded-captures - Recover every structured answer.
+live-reader-verdict	count-all	Completeness verdict -> count-all - Declared and presented counts must agree.
+live-downstream-record	preserve-note	Durable record -> preserve-note - Keep the captain's typed rationale.
+live-close-behavior	announce-answers	Close behavior -> announce-answers - Do not call a populated close empty.

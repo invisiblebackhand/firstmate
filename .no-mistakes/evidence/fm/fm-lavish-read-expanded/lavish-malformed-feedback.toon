@@ -1,0 +1,8 @@
+session:
+  file: /review.html
+  status: feedback
+prompts[1]:
+  - uid: "1"
+    prompt: "Captain supplied an answer"
+    selector: "section#missing-text"
+    tag: choice

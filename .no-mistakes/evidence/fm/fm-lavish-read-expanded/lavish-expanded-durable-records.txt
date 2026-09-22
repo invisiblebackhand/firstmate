@@ -1,0 +1,133 @@
+===== live-safety-boundary =====
+task:
+  id: live-safety-boundary
+  title: Safety boundary
+  state: done
+  blocked: no
+  blocked_by: none
+  held: no
+  hold_reason: Awaiting the live Lavish validation answer
+  hold_kind: captain
+  hold_until: "-"
+  kind: captain
+  repo: firstmate
+  priority: "-"
+  created: "-"
+  closed: 2026-09-21
+  deps: none
+  links: none
+  body: "Resolution recorded by fm-captain-hold.\nDecision digest: b752def233c08378f8b2ce8aecd274924cfbacf80b01b4529247df3f320de91c\nResolution mode: answered\n\nCaptain decision:\nCaptain answered this call through the captured result live-capture-source sequence 1.\nTask: live-safety-boundary\nAnswer: simulation-only\nAnswer as shown to the captain: Safety boundary -> simulation-only - Agent-touched code must not connect to live order routing."
+===== live-market-timezone =====
+task:
+  id: live-market-timezone
+  title: Market timestamps
+  state: done
+  blocked: no
+  blocked_by: none
+  held: no
+  hold_reason: Awaiting the live Lavish validation answer
+  hold_kind: captain
+  hold_until: "-"
+  kind: captain
+  repo: firstmate
+  priority: "-"
+  created: "-"
+  closed: 2026-09-21
+  deps: none
+  links: none
+  body: "Resolution recorded by fm-captain-hold.\nDecision digest: 9d47cef44fe4736e6a9e41ca43f68f6dad3ab333c559e73ee599f4f843df24a6\nResolution mode: answered\n\nCaptain decision:\nCaptain answered this call through the captured result live-capture-source sequence 1.\nTask: live-market-timezone\nAnswer: exchange-time\nAnswer as shown to the captain: Market timestamps -> exchange-time - State the timezone explicitly."
+===== live-data-gaps =====
+task:
+  id: live-data-gaps
+  title: Missing market data
+  state: done
+  blocked: no
+  blocked_by: none
+  held: no
+  hold_reason: Awaiting the live Lavish validation answer
+  hold_kind: captain
+  hold_until: "-"
+  kind: captain
+  repo: firstmate
+  priority: "-"
+  created: "-"
+  closed: 2026-09-21
+  deps: none
+  links: none
+  body: "Resolution recorded by fm-captain-hold.\nDecision digest: 70e8050b55a156a17289687485054c840cee9bf91a865fe4cfef931d70715133\nResolution mode: answered\n\nCaptain decision:\nCaptain answered this call through the captured result live-capture-source sequence 1.\nTask: live-data-gaps\nAnswer: surface-gaps\nAnswer as shown to the captain: Missing market data -> surface-gaps - Never silently pad or interpolate."
+===== live-review-scope =====
+task:
+  id: live-review-scope
+  title: Review scope
+  state: done
+  blocked: no
+  blocked_by: none
+  held: no
+  hold_reason: Awaiting the live Lavish validation answer
+  hold_kind: captain
+  hold_until: "-"
+  kind: captain
+  repo: firstmate
+  priority: "-"
+  created: "-"
+  closed: 2026-09-21
+  deps: none
+  links: none
+  body: "Resolution recorded by fm-captain-hold.\nDecision digest: 8de2e799580ef985c330e3cc7162d062c5e98711a5d6611b76ca275467efc096\nResolution mode: answered\n\nCaptain decision:\nCaptain answered this call through the captured result live-capture-source sequence 1.\nTask: live-review-scope\nAnswer: expanded-captures\nAnswer as shown to the captain: Review scope -> expanded-captures - Recover every structured answer."
+===== live-reader-verdict =====
+task:
+  id: live-reader-verdict
+  title: Completeness verdict
+  state: done
+  blocked: no
+  blocked_by: none
+  held: no
+  hold_reason: Awaiting the live Lavish validation answer
+  hold_kind: captain
+  hold_until: "-"
+  kind: captain
+  repo: firstmate
+  priority: "-"
+  created: "-"
+  closed: 2026-09-21
+  deps: none
+  links: none
+  body: "Resolution recorded by fm-captain-hold.\nDecision digest: d3686f18ea1b225f6d2a22c8480dcea759654e2d7206a1fc9511e7cf9551bb19\nResolution mode: answered\n\nCaptain decision:\nCaptain answered this call through the captured result live-capture-source sequence 1.\nTask: live-reader-verdict\nAnswer: count-all\nAnswer as shown to the captain: Completeness verdict -> count-all - Declared and presented counts must agree."
+===== live-downstream-record =====
+task:
+  id: live-downstream-record
+  title: Durable record
+  state: done
+  blocked: no
+  blocked_by: none
+  held: no
+  hold_reason: Awaiting the live Lavish validation answer
+  hold_kind: captain
+  hold_until: "-"
+  kind: captain
+  repo: firstmate
+  priority: "-"
+  created: "-"
+  closed: 2026-09-21
+  deps: none
+  links: none
+  body: "Resolution recorded by fm-captain-hold.\nDecision digest: e5d8d5f070e05a89d5999f705437bda443c742ed10b83e56af72ceddc1b1daff\nResolution mode: answered\n\nCaptain decision:\nCaptain answered this call through the captured result live-capture-source sequence 1.\nTask: live-downstream-record\nAnswer: preserve-note\nAnswer as shown to the captain: Durable record -> preserve-note - Keep the captain's typed rationale."
+===== live-close-behavior =====
+task:
+  id: live-close-behavior
+  title: Close behavior
+  state: done
+  blocked: no
+  blocked_by: none
+  held: no
+  hold_reason: Awaiting the live Lavish validation answer
+  hold_kind: captain
+  hold_until: "-"
+  kind: captain
+  repo: firstmate
+  priority: "-"
+  created: "-"
+  closed: 2026-09-21
+  deps: none
+  links: none
+  body: "Resolution recorded by fm-captain-hold.\nDecision digest: b6b62f9de86adf7068c18d2cd636a512c5797c44b2176814f5020dd8e29808f3\nResolution mode: answered\n\nCaptain decision:\nCaptain answered this call through the captured result live-capture-source sequence 1.\nTask: live-close-behavior\nAnswer: announce-answers\nAnswer as shown to the captain: Close behavior -> announce-answers - Do not call a populated close empty."

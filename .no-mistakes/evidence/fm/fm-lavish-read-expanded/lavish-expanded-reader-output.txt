@@ -1,0 +1,88 @@
+SESSION-ENDING MESSAGE: (none)
+
+declared_items: 8
+presented_items: 8
+malformed_items: 0
+complete: yes
+lifecycle: feedback
+session_ended: (unset)
+annotation_count: 8
+session_ending_message_count: 0
+
+ANNOTATIONS
+ANNOTATION 1 of 8
+element_uid: 1
+element_selector: article#live-safety-boundary
+tag: choice
+text:
+| Safety boundary -> simulation-only - Agent-touched code must not connect to live order routing.
+note:
+| Agent-touched code must not connect to live order routing.
+ANNOTATION 2 of 8
+element_uid: 2
+element_selector: article#live-market-timezone
+tag: choice
+text:
+| Market timestamps -> exchange-time - State the timezone explicitly.
+note:
+| State the timezone explicitly.
+ANNOTATION 3 of 8
+element_uid: 3
+element_selector: article#live-data-gaps
+tag: choice
+text:
+| Missing market data -> surface-gaps - Never silently pad or interpolate.
+note:
+| Never silently pad or interpolate.
+ANNOTATION 4 of 8
+element_uid: 4
+element_selector: article#live-review-scope
+tag: choice
+text:
+| Review scope -> expanded-captures - Recover every structured answer.
+note:
+| Recover every structured answer.
+ANNOTATION 5 of 8
+element_uid: 5
+element_selector: article#live-reader-verdict
+tag: choice
+text:
+| Completeness verdict -> count-all - Declared and presented counts must agree.
+note:
+| Declared and presented counts must agree.
+ANNOTATION 6 of 8
+element_uid: 6
+element_selector: article#live-downstream-record
+tag: choice
+text:
+| Durable record -> preserve-note - Keep the captain's typed rationale.
+note:
+| Keep the captain's typed rationale.
+ANNOTATION 7 of 8
+element_uid: 7
+element_selector: article#live-close-behavior
+tag: choice
+text:
+| Close behavior -> announce-answers - Do not call a populated close empty.
+note:
+| Do not call a populated close empty.
+ANNOTATION 8 of 8
+element_uid: 8
+element_selector: td#risk-cell
+tag: span
+target_type:
+| table-cell
+target_selector:
+| #risk-table
+target_rowLabel:
+| Research tooling
+target_columnLabel:
+| May connect to
+target_text:
+| Simulation only
+text:
+| Simulation only
+prompt:
+| Verify the safety boundary table cell
+END ANNOTATIONS
+END LAVISH RESULT (8 of 8)

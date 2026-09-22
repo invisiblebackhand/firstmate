@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Expanded Lavish reader live validation</title>
+  <style>
+    :root {
+      --paper: #f6ecd3;
+      --card: #fffdf7;
+      --ink: #241c14;
+      --muted: #6f5e46;
+      --line: #ddc89c;
+      --rust: #c0452a;
+      --sea: #2f6b4f;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--paper); color: var(--ink); font: 16px/1.5 system-ui, sans-serif; }
+    main { width: min(980px, calc(100% - 32px)); margin: 32px auto; }
+    h1 { margin: 0 0 6px; }
+    .lede { color: var(--muted); margin: 0 0 24px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+    article, .risk { min-width: 0; padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
+    article h2 { margin: 0 0 6px; font-size: 1rem; }
+    article p { margin: 0; color: var(--muted); overflow-wrap: anywhere; }
+    .answer { margin-top: 10px; color: var(--sea); font-weight: 700; }
+    .risk { margin-top: 18px; border-width: 2px; border-color: var(--rust); }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 8px; border-bottom: 1px solid var(--line); text-align: left; }
+    #status { margin-top: 18px; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Captain's Call — live expanded-capture validation</h1>
+    <p class="lede">This isolated board queues seven structured answers and one targeted table annotation through the real Lavish browser API.</p>
+    <section class="grid" id="calls"></section>
+    <section class="risk">
+      <h2>Safety boundary</h2>
+      <table id="risk-table">
+        <thead><tr><th>Agent-touched code</th><th>May connect to</th></tr></thead>
+        <tbody><tr><td>Research tooling</td><td id="risk-cell">Simulation only</td></tr></tbody>
+      </table>
+    </section>
+    <p id="status" role="status">Waiting for the Lavish review API…</p>
+  </main>
+  <script>
+    const answers = [
+      { key: "live-safety-boundary", title: "Safety boundary", selection: "simulation-only", note: "Agent-touched code must not connect to live order routing." },
+      { key: "live-market-timezone", title: "Market timestamps", selection: "exchange-time", note: "State the timezone explicitly." },
+      { key: "live-data-gaps", title: "Missing market data", selection: "surface-gaps", note: "Never silently pad or interpolate." },
+      { key: "live-review-scope", title: "Review scope", selection: "expanded-captures", note: "Recover every structured answer." },
+      { key: "live-reader-verdict", title: "Completeness verdict", selection: "count-all", note: "Declared and presented counts must agree." },
+      { key: "live-downstream-record", title: "Durable record", selection: "preserve-note", note: "Keep the captain's typed rationale." },
+      { key: "live-close-behavior", title: "Close behavior", selection: "announce-answers", note: "Do not call a populated close empty." }
+    ];
+
+    const calls = document.getElementById("calls");
+    for (const answer of answers) {
+      const card = document.createElement("article");
+      card.id = answer.key;
+      const heading = document.createElement("h2");
+      heading.textContent = answer.title;
+      const prompt = document.createElement("p");
+      prompt.textContent = answer.note;
+      const selected = document.createElement("div");
+      selected.className = "answer";
+      selected.textContent = answer.selection;
+      card.append(heading, prompt, selected);
+      calls.append(card);
+    }
+
+    let submitted = false;
+    async function submitLiveCapture() {
+      if (submitted || !window.lavish || !window.lavish.queuePrompt || !window.lavish.sendQueuedPrompts) return;
+      submitted = true;
+      for (const answer of answers) {
+        window.lavish.queuePrompt(
+          "Captain's Call answer - " + answer.title + ": " + answer.selection + " - " + answer.note,
+          {
+            tag: "choice",
+            text: answer.title + " -> " + answer.selection + " - " + answer.note,
+            element: document.getElementById(answer.key),
+            data: {
+              schema: "fm-bearings-answer.v1",
+              question: answer.key,
+              selection: answer.selection,
+              note: answer.note
+            }
+          }
+        );
+      }
+      window.lavish.queuePrompt("Verify the safety boundary table cell", {
+        tag: "span",
+        text: "Simulation only",
+        element: document.getElementById("risk-cell"),
+        target: {
+          type: "table-cell",
+          selector: "#risk-table",
+          rowLabel: "Research tooling",
+          columnLabel: "May connect to",
+          text: "Simulation only"
+        }
+      });
+      document.getElementById("status").textContent = "Queued seven answers and one targeted annotation; sending to the attached poll.";
+      await window.lavish.sendQueuedPrompts();
+      document.getElementById("status").textContent = "Feedback sent.";
+    }
+
+    const timer = setInterval(() => {
+      submitLiveCapture();
+      if (submitted) clearInterval(timer);
+    }, 100);
+  </script>
+</body>
+</html>
