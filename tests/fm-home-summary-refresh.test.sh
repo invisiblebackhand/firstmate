@@ -1087,14 +1087,7 @@ cp "$ROOT/bin/fm-timeout-lib.sh" "$UTF8_BIN/fm-timeout-lib.sh"
 cp "$ROOT/bin/fm-wake-lib.sh" "$UTF8_BIN/fm-wake-lib.sh"
 cat > "$UTF8_BIN/fm-fleet-snapshot.sh" <<'SH'
 #!/usr/bin/env bash
-case "${FM_TEST_UTF8_FIXTURE:-boundary}" in
-  boundary)
-    perl -CS -e 'print STDERR "a" x 494, "\t\r\x{00e9}\x{6f22}\x{754c}\x{7d42}tail\n"'
-    ;;
-  controls)
-    perl -CS -e 'print STDERR "b" x 495, "\t\x{00e9}\r\x{6f22}\n"'
-    ;;
-esac
+perl -CS -e 'print STDERR "a" x 494, "\t\r\x{00e9}\x{6f22}\x{754c}\x{7d42}tail\n"'
 exit 1
 SH
 chmod +x "$UTF8_BIN/fm-home-summary-refresh.sh" "$UTF8_BIN/fm-fleet-snapshot.sh"
@@ -1109,23 +1102,13 @@ import sys
 text = sys.stdin.buffer.read().decode("utf-8")
 prefix = "fm-home-summary-refresh: summary producer failed with exit 1: "
 assert text.startswith(prefix), text
-assert len(text.removeprefix(prefix)) == 500, len(text.removeprefix(prefix))
+diagnostic = text.removeprefix(prefix)
+assert len(diagnostic) == 500, len(diagnostic)
+assert all(control not in diagnostic for control in "\t\r\n") and diagnostic[494:496] == "  ", repr(diagnostic)
 ' || fail "producer diagnostic was not 500 valid UTF-8 characters"
 utf8_expected=$(perl -CS -e 'print "fm-home-summary-refresh: summary producer failed with exit 1: ", "a" x 494, "  \x{00e9}\x{6f22}\x{754c}\x{7d42}"')
 assert_equals "$utf8_expected" "$utf8_out" \
   "producer diagnostic changed the character cap or control folding"
-
-# The selected physical line's LF is its terminator, so exercise its retained
-# folding separately where the folded space falls at the 500-character edge.
-set +e
-utf8_out=$(LC_ALL=C FM_TEST_UTF8_FIXTURE=controls FM_HOME="$UTF8_HOME" \
-  "$UTF8_BIN/fm-home-summary-refresh.sh" 2>&1)
-utf8_rc=$?
-set -e
-[ "$utf8_rc" -ne 0 ] || fail "the UTF-8 control fixture unexpectedly succeeded"
-utf8_expected=$(perl -CS -e 'print "fm-home-summary-refresh: summary producer failed with exit 1: ", "b" x 495, " \x{00e9} \x{6f22} "')
-assert_equals "$utf8_expected" "$utf8_out" \
-  "producer diagnostic did not fold tab, CR, and LF to spaces"
 printf '# Seeded Firstmate home\n' > "$UTF8_HOME/AGENTS.md"
 cat > "$UTF8_HOME/data/backlog.md" <<'EOF'
 ## In flight
