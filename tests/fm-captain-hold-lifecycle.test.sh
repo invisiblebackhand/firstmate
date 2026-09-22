@@ -1537,10 +1537,10 @@ test_secondmate_reconcile_publishes_before_request_retirement() {
 # answer time, a card-declared release mode frees held work, freeform prose can
 # forge nothing, and a replayed capture is idempotent.
 test_bound_channel_answers_close_at_answer_time() {
-  local home id sid artifact result out show rc note_512
+  local home id sid artifact result out show rc note_512 unicode_note
   home=$(make_home channel-answer-closure)
   id=sample-eval-proposal
-  note_512=$(printf '%0512d' 0 | tr '0' n)
+  note_512=$(perl -CS -e 'print "\x{00e9}" x 512')
   mkdir -p "$home/data/$id"
   tasks_in "$home" add "$id" "Propose sample eval changes" --kind scout --repo sample --start >/dev/null \
     || fail "could not create the review origin"
@@ -1611,6 +1611,11 @@ EOF
   printf 'lavish\n' > "$home/state/procevent-inbox/$sid.1.adapter"
 
   out=$(run_lavish "$home" answers "$result") || fail "could not read the captured answers"
+  unicode_note=$(printf '%s\n' "$out" | awk -F '\t' '$1 == "sample-membership-call" { print $3; exit }')
+  [ "$(printf '%s' "$unicode_note" | wc -m | tr -d ' ')" = 512 ] \
+    || fail "the captured UTF-8 rationale did not contain 512 characters"
+  [ "$(printf '%s' "$unicode_note" | wc -c | tr -d ' ')" = 1024 ] \
+    || fail "the captured UTF-8 rationale was byte-truncated or split"
   assert_contains "$out" "sample-membership-call	gold-only" \
     "a repeated reconcile selection deleted another card's answer"
   assert_contains "$out" "$(printf 'sample-membership-call\tgold-only\t%s' "$note_512")" \
