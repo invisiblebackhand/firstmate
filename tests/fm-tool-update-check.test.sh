@@ -754,6 +754,16 @@ SH
   pass "a generic brew formula source reports when brew lists it as outdated"
 }
 
+test_malformed_config_rejects_herdr_cask() {
+  local home out
+  home=$(make_home brew-herdr-cask)
+  write_config "$home" '{"tools":[{"name":"herdr","brew":{"cask":"herdr"}}]}'
+  out="$home/out.txt"
+  run_check "$home" "$PATH" "$out"
+  assert_contains "$(cat "$out")" "tool herdr must use brew.formula herdr" "a Herdr cask source was accepted"
+  pass "Herdr must use its Homebrew formula source"
+}
+
 test_malformed_config_with_npm_needs_command() {
   local home out
   home=$(make_home npm-no-command)
@@ -1475,6 +1485,7 @@ test_brew_probe_failure_is_reported
 test_brew_unparseable_version_is_reported
 test_brew_probes_respect_the_sweep_budget
 test_brew_formula_newer_version_is_reported
+test_malformed_config_rejects_herdr_cask
 test_malformed_config_with_npm_needs_command
 test_npm_older_version_is_silent
 test_npm_probe_timeout_is_reported

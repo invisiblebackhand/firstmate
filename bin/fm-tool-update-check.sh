@@ -334,6 +334,7 @@ config_validate() {
       elif ($t | has("brew")) and (($t.brew | type) != "object") then "tool \($t.name) brew must be an object"
       elif ($t | has("brew")) and ($t.brew | has("formula")) and (($t.brew.formula | type) != "string" or ($t.brew.formula | length) == 0 or ($t.brew.formula | test("^[A-Za-z0-9._+-]+$") | not)) then "tool \($t.name) brew.formula must be a valid brew formula name"
       elif ($t | has("brew")) and ($t.brew | has("cask")) and (($t.brew.cask | type) != "string" or ($t.brew.cask | length) == 0 or ($t.brew.cask | test("^[A-Za-z0-9._+-]+$") | not)) then "tool \($t.name) brew.cask must be a valid brew cask name"
+      elif ($t.name == "herdr") and ($t | has("brew")) and ($t.brew | has("cask")) then "tool herdr must use brew.formula herdr"
       elif ($t | has("brew")) and (($t.brew | has("formula")) == false) and (($t.brew | has("cask")) == false) then "tool \($t.name) brew needs formula or cask"
       else empty
       end;
