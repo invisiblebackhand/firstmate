@@ -34,6 +34,12 @@ A project trust dialog can appear on the first Pi run in any not-yet-trusted dir
 Accept it with Enter and verify the instructions begin processing.
 The decision persists per path in `~/.pi/agent/trust.json`, so later spawns in the same pooled slot skip it.
 
+## Auth readiness does not prove the request path
+
+`pi auth check <provider>` and a healthy `quota-axi` account read for the same provider are NOT proof that a Pi dispatch on that provider will actually work: the check validates only the stored token's local JWT expiry, not whether the vendor's server still accepts it.
+Established live for `openai-codex` (task fm-pi-codex-auth, [full evidence](../../../../../docs/verification/dispatch-auth.md#pis-openai-codex-readiness-check-does-not-prove-its-request-path-task-fm-pi-codex-auth)): every Pi worker dispatched on `openai-codex/*` died on its first model call with an expired-token rejection, even though `pi auth check`, `quota-axi`, and the standalone `codex` CLI all read that same account as healthy.
+Until that evidence is re-verified against a current Pi release, this is proof under `quota-array-dispatch`'s eligibility gate that the credential surface a `harness=pi provider=openai-codex` candidate actually selects is unusable, independent of what quota-axi or Pi's own check report: treat that candidate as blocked and route the work to the `codex` harness directly instead.
+
 ## Worker turn-end extension
 
 `../../../bin/fm-spawn.sh` keeps the worker turn-end extension in `state/`, outside the worktree, because project-local extension files worsen the trust gate and pollute the project.
