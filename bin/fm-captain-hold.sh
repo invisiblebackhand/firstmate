@@ -1212,7 +1212,15 @@ sanitize_field() {  # <text>
 }
 
 sanitize_reconcile_provenance() {
-  printf '%s' "$1" | tr '\n\r\t' '   ' | LC_ALL=C tr -d '\000-\037\177' | cut -c1-1024
+  printf '%s' "$1" | perl -MEncode=decode -e '
+    binmode STDIN, ":raw";
+    binmode STDOUT, ":encoding(UTF-8)";
+    local $/;
+    my $text = decode("UTF-8", scalar <STDIN>);
+    $text =~ tr/\n\r\t/   /;
+    $text =~ s/[\x00-\x1f\x7f]//g;
+    print substr($text, 0, 1024);
+  '
 }
 
 command_answers() {

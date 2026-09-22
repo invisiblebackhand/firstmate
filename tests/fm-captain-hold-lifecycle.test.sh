@@ -1818,6 +1818,33 @@ test_reconcile_never_closes_through_the_keyed_answer_intake() {
   pass "only a bound captured source creates reconcile requests"
 }
 
+test_reconcile_provenance_keeps_its_utf8_boundary() {
+  local home source note expected stored request
+  home=$(make_home reconcile-provenance-utf8)
+  source=$(perl -e 'print "s" x 1000')
+  note=$(perl -CS -e 'print "a" x 7, "\x{00e9}z"')
+  expected="$source; captain note: $(perl -CS -e 'print "a" x 7, "\x{00e9}"')"
+  tasks_in "$home" add sample-unicode-reconcile "Re-check a UTF-8 rationale" \
+    --kind captain --repo sample >/dev/null \
+    || fail "could not create the UTF-8 reconcile fixture"
+  run_captain "$home" hold sample-unicode-reconcile \
+    --reason "captain rationale pending" >/dev/null \
+    || fail "could not hold the UTF-8 reconcile fixture"
+  run_captain "$home" bind unicode-reconcile >/dev/null \
+    || fail "could not bind the UTF-8 reconcile fixture"
+
+  printf 'sample-unicode-reconcile\t%s\n' "$note" \
+    | LC_ALL=C run_captain "$home" reconcile-requests \
+        --source-id unicode-reconcile --source "$source" >/dev/null \
+    || fail "could not record the UTF-8 reconcile request"
+  request="$home/state/reconcile-requests/sample-unicode-reconcile.request"
+  stored=$(sed -n 's/^source=//p' "$request")
+  [ "$stored" = "$expected" ] \
+    || fail "the reconcile provenance split or miscounted its boundary UTF-8 character"
+
+  pass "reconcile provenance truncates UTF-8 by character under the C locale"
+}
+
 test_normal_answers_retire_pending_reconcile_requests() {
   local home list id
   home=$(make_home reconcile-normal-answer)
@@ -4071,6 +4098,7 @@ test_secondmate_home_publishes_holds_and_answers
 test_secondmate_reconcile_publishes_before_request_retirement
 test_bound_channel_answers_close_at_answer_time
 test_reconcile_never_closes_through_the_keyed_answer_intake
+test_reconcile_provenance_keeps_its_utf8_boundary
 test_normal_answers_retire_pending_reconcile_requests
 test_reconcile_closes_with_evidence_or_keeps_the_call_open
 test_reconcile_outcomes_retry_partial_failures_once
