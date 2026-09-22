@@ -604,7 +604,7 @@ When it is present and the check is armed, [`bin/fm-tool-update-check.sh`](../bi
 The second condition is the reason the check exists.
 An update can install correctly and stay inert because an earlier `PATH` entry still holds an older copy, and a check that only asks whether a newer version is published reports that host as up to date.
 The script therefore runs every copy of a watched command found on `PATH` and asks it for its own version, rather than trusting one lookup or reading a version out of a directory name.
-It only reports; it never installs, updates, fetches, or changes `PATH`, a version manager, or any installed tool.
+It only reports; it never installs, updates, changes `PATH`, changes a version manager or installed tool, or fetches into a watched git repository.
 
 This section is the single owner of the canonical schema.
 `bin/fm-tool-update-check.sh` owns probe mechanics, cadence, and the report record.
@@ -614,7 +614,7 @@ This section is the single owner of the canonical schema.
   "tools": [
     {
       "name": "<label used in the report>",
-      "command": "<optional bare executable name to find on PATH>",
+      "command": "<optional bare executable name to find on PATH; required with npm>",
       "version_args": ["<optional args that make it print its version, default --version>"],
       "announce_pattern": "<optional extended regex matching the tool's own update announcement>",
       "announce_args": ["<optional args for the command that carries that announcement, default version_args>"],
@@ -622,20 +622,34 @@ This section is the single owner of the canonical schema.
         "repo": "<optional absolute path to a local clone>",
         "remote": "<optional remote name, default origin>",
         "branch": "<optional branch, default the remote's own default branch>"
+      },
+      "npm": {
+        "package": "<npm package name to check against the registry>"
+      },
+      "brew": {
+        "cask": "<optional Homebrew cask name>",
+        "formula": "<optional Homebrew formula name>"
       }
     }
   ]
 }
 ```
 
-Each entry needs a `name` and at least one of `command` or `git`; an entry may carry both.
+Each entry needs a `name` and at least one of `command`, `git`, `npm`, or `brew`; an entry may carry several of these sources.
 A `command` entry gives the `PATH` comparison above, and adding `announce_pattern` also reports the tool's own update announcement, which is how a tool that already reports its own updates is read rather than reimplemented.
 A tool does not always announce a new release on the command that prints its version: `no-mistakes --version` prints only the version, while its other commands carry the announcement.
 `announce_args` names the command to search for the announcement in that case, and it is asked only of the copy `PATH` resolves; without it the version probe's own output is searched.
 An `announce_pattern` that is not a usable extended regular expression stops `arm`, and during a sweep it is reported as that one tool's own check failure so one broken pattern never stops the other watched tools from being checked.
 A `git` entry reports how many commits the local clone is behind its remote branch, and stays silent when the clone is current or ahead.
 An omitted `branch` uses the remote's default branch, taken from the clone's own record of it and otherwise asked of the remote directly, so a `--single-branch` clone still resolves.
-Both probe kinds are read-only and bounded, and a probe that cannot answer is reported as a check failure rather than assumed current.
+An `npm` entry requires `command` and queries the npm registry for the package's latest published version.
+After every copy of the command on `PATH` reports a version successfully, the check reports when the registry version is newer than the newest installed copy.
+This is the natural source for npm-published tools such as `lavish-axi`, `quota-axi`, `gh-axi`, `tasks-axi`, `chrome-devtools-axi`, and `backpass`.
+A `brew` entry uses `brew outdated` to check whether a Homebrew package has a newer version available and may specify `cask` or `formula`; when both are present, `formula` is used.
+`cask` names a Homebrew cask and `formula` names a Homebrew formula.
+Herdr is distributed as a Homebrew formula, so a Herdr `brew.cask` source is rejected and should be configured as `"formula": "herdr"`; Codex is distributed as a cask.
+For compatibility with existing command-only registries, when neither an npm nor a Brew source is explicit, same-name commands for those six npm packages default to their same-name npm source while same-name `herdr` and `codex` commands default to the Herdr formula and Codex cask.
+All probe kinds are read-only and bounded, and a probe that cannot answer is reported as a check failure rather than assumed current.
 See [`docs/examples/watched-tools.json`](examples/watched-tools.json) for a starting point to copy into local `config/watched-tools.json`.
 
 Arm the check once per home with `bin/fm-tool-update-check.sh arm`.
