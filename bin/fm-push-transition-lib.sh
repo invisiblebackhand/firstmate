@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Shared owner of the watcher's native push-transition escalation.
+# Durable watcher delivery reasons are folded and capped at 4096 UTF-8 characters.
 #
 # The watcher and event-wait smoke tests source this library instead of loading
 # the whole watcher to obtain handle_push_transition. Its source list is limited
@@ -37,7 +38,13 @@ watch_delivery_clean_identity() {
 }
 
 watch_delivery_clean_reason() {
-  printf '%s' "$1" | tr '\t\r\n' '   ' | cut -c1-4096
+  printf '%s' "$1" | tr '\t\r\n' '   ' | perl -MEncode=decode -e '
+    binmode STDIN, ":raw";
+    binmode STDOUT, ":encoding(UTF-8)";
+    local $/;
+    my $text = decode("UTF-8", scalar <STDIN>);
+    print substr($text, 0, 4096);
+  '
 }
 
 watch_delivery_publish() {
