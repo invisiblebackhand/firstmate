@@ -3188,6 +3188,159 @@ assert_contains "$out" "SESSION-ENDING MESSAGE: (none)" \
 assert_contains "$out" "ANNOTATIONS: (none)" "an empty board close invented annotations"
 pass "read distinguishes a feedback capture from an ended-with-nothing close"
 
+for lifecycle_case in waiting disconnected missing ended; do
+  case "$lifecycle_case" in
+    waiting) printf 'session:\n  file: /review.html\n  status: waiting\n' > "$READ" ;;
+    disconnected) printf 'session:\n  file: /review.html\n  status: browser_disconnected\n' > "$READ" ;;
+    missing) printf 'error: No active Lavish Editor session\ncode: NOT_FOUND\n' > "$READ" ;;
+    ended) printf 'session:\n  file: /review.html\n  status: ended\n' > "$READ" ;;
+  esac
+  out=$(read_out) || fail "read refused an empty $lifecycle_case capture"
+  assert_contains "$out" "lifecycle: $lifecycle_case" \
+    "read did not present the empty $lifecycle_case lifecycle"
+  answers_out=$("$ROOT/bin/fm-procevent-lavish.sh" answers "$READ") \
+    || fail "answers refused an empty $lifecycle_case capture"
+  [ -z "$answers_out" ] || fail "answers invented rows for an empty $lifecycle_case capture"
+  reconciles_out=$("$ROOT/bin/fm-procevent-lavish.sh" reconciles "$READ") \
+    || fail "reconciles refused an empty $lifecycle_case capture"
+  [ -z "$reconciles_out" ] || fail "reconciles invented rows for an empty $lifecycle_case capture"
+done
+
+for invalid_empty_case in feedback unknown; do
+  case "$invalid_empty_case" in
+    feedback) printf 'session:\n  file: /review.html\n  status: feedback\n' > "$READ" ;;
+    unknown) printf 'garbage that is not a session block\n' > "$READ" ;;
+  esac
+  out=$(read_out 2>&1) && fail "read accepted an empty $invalid_empty_case capture"
+  assert_contains "$out" "cannot read Lavish content block" \
+    "read did not explain its empty $invalid_empty_case refusal"
+  answers_out=$("$ROOT/bin/fm-procevent-lavish.sh" answers "$READ" 2>&1) \
+    && fail "answers accepted an empty $invalid_empty_case capture"
+  assert_contains "$answers_out" "cannot read Lavish content block" \
+    "answers did not explain its empty $invalid_empty_case refusal"
+  reconciles_out=$("$ROOT/bin/fm-procevent-lavish.sh" reconciles "$READ" 2>&1) \
+    && fail "reconciles accepted an empty $invalid_empty_case capture"
+  assert_contains "$reconciles_out" "cannot read Lavish content block" \
+    "reconciles did not explain its empty $invalid_empty_case refusal"
+done
+pass "empty content follows the lifecycle contract across every reader"
+
+# One nested target makes Lavish encode the entire prompts block as expanded
+# mappings. Choices in that block must still reach both presentation and keyed
+# intake, including the older answer/note context emitted by captured boards.
+cat > "$READ" <<'EOF'
+session:
+  file: /review.html
+  status: feedback
+  session_ended: true
+prompts[4]:
+  - uid: "1"
+    prompt: "Context data: {\"question\":\"expanded-choice\",\"answer\":\"approve\",\"note\":\"Typed reason · checked\"}"
+    selector: "section#choice"
+    tag: choice
+    text: "Approve"
+  - uid: "2"
+    prompt: "Check the table cell"
+    selector: "table#risk > tbody > tr"
+    tag: span
+    text: "Exposure"
+    target:
+      type: table-cell
+      selector: "table#risk"
+      rowLabel: "Orders"
+      columnLabel: "Allowed"
+      text: "No"
+  - uid: "3"
+    prompt: "Context data: {\"question\":\"expanded-note\",\"answer\":null,\"note\":\"Explain first\"}"
+    selector: "section#note"
+    tag: choice
+    text: "Title -> Explain first"
+  - uid: "4"
+    prompt: "Context data: {\"question\":\"expanded-substring\",\"answer\":\"approve\",\"note\":\"safe\"}"
+    selector: "section#substring"
+    tag: choice
+    text: "Unsafe configuration"
+EOF
+out=$(read_out) || fail "read refused a valid expanded capture"
+assert_contains "$out" "declared_items: 4" "expanded capture lost its declared count"
+assert_contains "$out" "presented_items: 4" "expanded capture dropped an item"
+assert_contains "$out" "complete: yes" "expanded capture was not certified complete"
+assert_contains "$out" "target_rowLabel:" "expanded table target lost its row label"
+assert_contains "$out" "| Orders" "expanded table target lost its row value"
+assert_contains "$out" "target_columnLabel:" "expanded table target lost its column label"
+assert_contains "$out" "| Allowed" "expanded table target lost its column value"
+assert_contains "$out" "| Typed reason · checked" "expanded choice lost its typed note"
+assert_contains "$out" "| Explain first" "expanded note-only choice lost its typed note"
+answers_out=$("$ROOT/bin/fm-procevent-lavish.sh" answers "$READ") \
+  || fail "answers refused a valid expanded capture"
+assert_contains "$answers_out" $'expanded-choice\tapprove\tApprove - Typed reason · checked' \
+  "expanded selected answer lost its typed rationale before keyed intake"
+assert_contains "$answers_out" $'expanded-note\tExplain first\tTitle -> Explain first' \
+  "expanded note-only answer did not reach keyed intake"
+assert_not_contains "$answers_out" $'expanded-note\tExplain first\tTitle -> Explain first - Explain first' \
+  "expanded legacy note-only answer duplicated its note in the display label"
+assert_contains "$answers_out" $'expanded-substring\tapprove\tUnsafe configuration - safe' \
+  "expanded legacy answer mistook a label substring for its typed note"
+[ "$(printf '%s\n' "$answers_out" | wc -l | tr -d ' ')" = 3 ] \
+  || fail "expanded choices did not produce exactly three keyed answers"
+pass "expanded prompts preserve nested targets, typed notes, and keyed answers"
+
+cat > "$READ" <<'EOF'
+session:
+  file: /review.html
+  status: feedback
+prompts[3]{uid,prompt,selector,tag,text}:
+  "4","Context data: {\"question\":\"table-choice\",\"answer\":\"yes\"}","section#table",choice,"Yes · safe"
+  "5","Context data: {\"schema\":\"fm-bearings-answer.v1\",\"question\":\"table-substring\",\"selection\":\"approve\",\"note\":\"safe\"}","section#table-substring",choice,"Unsafe configuration"
+  "6","Context data: {\"schema\":\"fm-bearings-answer.v1\",\"question\":\"table-note\",\"selection\":\"\",\"note\":\"Explain first\"}","section#table-note",choice,"Title -> Explain first"
+EOF
+out=$(read_out) || fail "read refused a valid tabular capture after the expanded case"
+assert_contains "$out" "complete: yes" "tabular capture regressed"
+answers_out=$("$ROOT/bin/fm-procevent-lavish.sh" answers "$READ") \
+  || fail "answers refused a valid tabular capture"
+assert_contains "$answers_out" $'table-choice\tyes\tYes · safe' \
+  "tabular keyed answer regressed"
+assert_contains "$answers_out" $'table-substring\tapprove\tUnsafe configuration - safe' \
+  "tabular versioned answer mistook a label substring for its typed note"
+assert_contains "$answers_out" $'table-note\tExplain first\tTitle -> Explain first' \
+  "tabular versioned note-only answer did not reach keyed intake"
+assert_not_contains "$answers_out" $'table-note\tExplain first\tTitle -> Explain first - Explain first' \
+  "tabular versioned note-only answer duplicated its note in the display label"
+pass "tabular prompts still reach presentation and keyed intake"
+
+cat > "$READ" <<'EOF'
+session:
+  file: /review.html
+  status: feedback
+prompts[2]<unknown>:
+  - uid: "1"
+EOF
+out=$(read_out 2>&1) && fail "read certified an unrecognized prompts block"
+assert_contains "$out" "cannot read Lavish content block header" \
+  "unrecognized block refusal did not identify its header"
+assert_not_contains "$out" "complete: yes" \
+  "unrecognized block was reported complete"
+answers_out=$("$ROOT/bin/fm-procevent-lavish.sh" answers "$READ" 2>&1) \
+  && fail "answers silently accepted an unrecognized prompts block"
+assert_contains "$answers_out" "cannot read Lavish content block header" \
+  "answers did not explain the unrecognized block"
+cat > "$READ" <<'EOF'
+session:
+  file: /review.html
+  status: feedback
+prompts[1]:
+  - uid: "1"
+    prompt: "typed"
+    selector: "section#broken"
+    tag: span
+EOF
+out=$(read_out 2>&1) && fail "read certified an incomplete expanded item"
+assert_contains "$out" "cannot read Lavish expanded item: missing text" \
+  "malformed expanded item refusal did not identify its missing field"
+assert_not_contains "$out" "complete: yes" \
+  "malformed expanded item was reported complete"
+pass "unrecognized and malformed prompt blocks refuse completion"
+
 # The runner's silence seam is generic and closed by default: an adapter with no
 # `silent` command must keep announcing, so adding the seam changed nothing for
 # every adapter that has no notion of a no-op.
