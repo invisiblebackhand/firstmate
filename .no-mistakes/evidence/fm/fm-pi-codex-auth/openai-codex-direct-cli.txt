@@ -1,0 +1,22 @@
+=== standalone codex request path ===
+codex=codex-cli 0.155.1
+Reading additional input from stdin...
+OpenAI Codex v0.155.1
+--------
+workdir: /Users/noahvonmaur/.no-mistakes/worktrees/36da6c2503c7/01M33CP8WQ3PJ49VQPDXQXD3CT
+model: gpt-6-astra
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, $TMPDIR]
+reasoning effort: none
+reasoning summaries: none
+session id: 01a0c6d7-1206-7a03-b68a-5161305f7368
+--------
+user
+Reply with exactly: CODEX-AUTH-OK
+codex
+CODEX-AUTH-OK
+tokens used
+12,778
+CODEX-AUTH-OK
+codex_request_rc=0

@@ -1,0 +1,13 @@
+session=fm-lab-pi-pending-76658-20505
+versions=herdr 0.9.0; pi 0.87.0
+idle_pi_composer=empty
+after_unsent_draft_composer=pending
+screen_tail_with_unsent_draft:
+ This project is not trusted. Project .pi resources and packages are ignored. Use /trust to save a trust decision, then 
+ restart pi.                                                                                                            
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+UNSENT-LIFECYCLE-GUARD-PROBE                                                                                            
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+~/.no-mistakes/worktrees/36da6c2503c7/01M33CP8WQ3PJ49VQPDXQXD3CT (detached)
+$0.000 (sub) 0.0%/272k (auto)                                                      (openai-codex) gpt-5.6-terra • medium

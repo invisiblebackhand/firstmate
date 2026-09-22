@@ -1,0 +1,15 @@
+window=fm-lab-pi-control-13645-23170:w1:p1
+endpoint_task_id=pi-exit-live
+worktree=/Users/noahvonmaur/.no-mistakes/worktrees/36da6c2503c7/01M33CP8WQ3PJ49VQPDXQXD3CT
+project=/Users/noahvonmaur/.no-mistakes/worktrees/36da6c2503c7/01M33CP8WQ3PJ49VQPDXQXD3CT
+harness=pi
+kind=ship
+mode=local-only
+yolo=off
+model=openai-codex/gpt-5.6-terra
+effort=medium
+backend=herdr
+herdr_session=fm-lab-pi-control-13645-23170
+herdr_workspace_id=w1
+herdr_tab_id=w1:t1
+herdr_pane_id=w1:p1

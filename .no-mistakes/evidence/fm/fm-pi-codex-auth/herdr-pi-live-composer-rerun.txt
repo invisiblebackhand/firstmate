@@ -1,0 +1,2 @@
+# pi 0.87.0 under herdr 0.9.0: idle composer classified empty
+ok - real herdr 0.9.0 + pi 0.87.0: a running idle pi's own cost/mode footer never reads as a dead shell prompt

@@ -1,0 +1,5 @@
+session=fm-lab-pi-control-13645-23170
+versions=herdr 0.9.0; pi 0.87.0
+pre_control_agent_status=idle
+stopped pi-exit-live harness=pi backend=herdr endpoint=fm-lab-pi-control-13645-23170:w1:p1 worktree=/Users/noahvonmaur/.no-mistakes/worktrees/36da6c2503c7/01M33CP8WQ3PJ49VQPDXQXD3CT
+post_control_agent_status=

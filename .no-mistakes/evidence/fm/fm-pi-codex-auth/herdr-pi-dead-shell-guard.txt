@@ -1,0 +1,14 @@
+session=fm-lab-pi-dead-shell-69965-5713
+versions=herdr 0.9.0; pi 0.87.0
+idle_pi_composer=empty
+post_quit_agent_status=unreadable
+post_quit_composer=empty
+post_quit_screen_tail:
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+                                                                                                                       
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+~/.no-mistakes/worktrees/36da6c2503c7/01M33CP8WQ3PJ49VQPDXQXD3CT (detached)
+$0.000 (sub) 0.0%/272k (auto)                                                     (openai-codex) gpt-5.6-terra • medium
+
+01M33CP8WQ3PJ49VQPDXQXD3CT on  HEAD [!] 2s 
+❯ 
