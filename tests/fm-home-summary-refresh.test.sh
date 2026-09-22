@@ -1084,9 +1084,17 @@ UTF8_HOME="$TMP_ROOT/utf8-summary-home"
 mkdir -p "$UTF8_BIN" "$UTF8_HOME"/{state,data,config,projects}
 cp "$WRITER" "$UTF8_BIN/fm-home-summary-refresh.sh"
 cp "$ROOT/bin/fm-timeout-lib.sh" "$UTF8_BIN/fm-timeout-lib.sh"
+cp "$ROOT/bin/fm-wake-lib.sh" "$UTF8_BIN/fm-wake-lib.sh"
 cat > "$UTF8_BIN/fm-fleet-snapshot.sh" <<'SH'
 #!/usr/bin/env bash
-perl -CS -e 'print STDERR "a" x 499, "\x{00e9}", "tail\n"'
+case "${FM_TEST_UTF8_FIXTURE:-boundary}" in
+  boundary)
+    perl -CS -e 'print STDERR "a" x 494, "\t\r\x{00e9}\x{6f22}\x{754c}\x{7d42}tail\n"'
+    ;;
+  controls)
+    perl -CS -e 'print STDERR "b" x 495, "\t\x{00e9}\r\x{6f22}\n"'
+    ;;
+esac
 exit 1
 SH
 chmod +x "$UTF8_BIN/fm-home-summary-refresh.sh" "$UTF8_BIN/fm-fleet-snapshot.sh"
@@ -1095,19 +1103,38 @@ utf8_out=$(LC_ALL=C FM_HOME="$UTF8_HOME" "$UTF8_BIN/fm-home-summary-refresh.sh" 
 utf8_rc=$?
 set -e
 [ "$utf8_rc" -ne 0 ] || fail "the UTF-8 producer fixture unexpectedly succeeded"
-printf '%s' "$utf8_out" | python3 -c 'import sys; sys.stdin.buffer.read().decode("utf-8")' \
-  || fail "producer diagnostic split a UTF-8 character"
-assert_contains "$utf8_out" "$(perl -CS -e 'print "a" x 499, "\x{00e9}"')" \
-  "producer diagnostic miscounted its UTF-8 boundary"
+printf '%s' "$utf8_out" | python3 -c '
+import sys
+
+text = sys.stdin.buffer.read().decode("utf-8")
+prefix = "fm-home-summary-refresh: summary producer failed with exit 1: "
+assert text.startswith(prefix), text
+assert len(text.removeprefix(prefix)) == 500, len(text.removeprefix(prefix))
+' || fail "producer diagnostic was not 500 valid UTF-8 characters"
+utf8_expected=$(perl -CS -e 'print "fm-home-summary-refresh: summary producer failed with exit 1: ", "a" x 494, "  \x{00e9}\x{6f22}\x{754c}\x{7d42}"')
+assert_equals "$utf8_expected" "$utf8_out" \
+  "producer diagnostic changed the character cap or control folding"
+
+# The selected physical line's LF is its terminator, so exercise its retained
+# folding separately where the folded space falls at the 500-character edge.
+set +e
+utf8_out=$(LC_ALL=C FM_TEST_UTF8_FIXTURE=controls FM_HOME="$UTF8_HOME" \
+  "$UTF8_BIN/fm-home-summary-refresh.sh" 2>&1)
+utf8_rc=$?
+set -e
+[ "$utf8_rc" -ne 0 ] || fail "the UTF-8 control fixture unexpectedly succeeded"
+utf8_expected=$(perl -CS -e 'print "fm-home-summary-refresh: summary producer failed with exit 1: ", "b" x 495, " \x{00e9} \x{6f22} "')
+assert_equals "$utf8_expected" "$utf8_out" \
+  "producer diagnostic did not fold tab, CR, and LF to spaces"
 printf '# Seeded Firstmate home\n' > "$UTF8_HOME/AGENTS.md"
 cat > "$UTF8_HOME/data/backlog.md" <<'EOF'
 ## In flight
 
 ## Queued
 EOF
-printf '[2026-08-28T09:58:00Z] %s\n' "$(perl -CS -e 'print "b" x 199, "\x{00e9}", "tail"')" \
-  > "$UTF8_HOME/state/.home-summary-refresh.log"
-printf '[2026-08-28T09:59:00Z] retry\n' >> "$UTF8_HOME/state/.home-summary-refresh.log"
+printf '[2026-08-28T09:58:00Z] retry\n' > "$UTF8_HOME/state/.home-summary-refresh.log"
+printf '[2026-08-28T09:59:00Z] %s\n' "$(perl -CS -e 'print "b" x 199, "\x{00e9}", "tail"')" \
+  >> "$UTF8_HOME/state/.home-summary-refresh.log"
 utf8_out=$(LC_ALL=C run_bootstrap_detect "$UTF8_HOME")
 printf '%s' "$utf8_out" | python3 -c 'import sys; sys.stdin.buffer.read().decode("utf-8")' \
   || fail "bootstrap failure excerpt split a UTF-8 character"
