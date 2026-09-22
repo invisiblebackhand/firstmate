@@ -69,6 +69,7 @@ Stored OAuth and API-key credentials retain their native credential type because
 The file holds one `<provider>/<model-id>` line followed by one newline, split at the first `/` so a provider-qualified model id such as `openrouter/anthropic/claude-sonnet-4-5` survives intact.
 An absent, unreadable, or unparseable file means no pin, and the branch then follows main's own current model, applied explicitly and live whenever main changes models mid-session.
 When main uses `codex-native`, following main explicitly selects the same model through ordinary Pi's `openai-codex` provider, so the background branch owns an independent Pi conversation.
+The current live authentication caveat for that Pi request path is recorded in [`dispatch-auth.md`](verification/dispatch-auth.md#pi-openai-codex-readiness-check-does-not-prove-its-request-path).
 If that ordinary Pi model is unavailable, the branch refuses to build and returns the notification to main; it never inherits the main native thread or silently selects a different model.
 Picking "Follow main" under a `codex-native` main reports that same `openai-codex` model, or that same refusal, because the command and the branch build share one follow rule.
 A `codex-native` branch pin is refused and excluded from the picker.

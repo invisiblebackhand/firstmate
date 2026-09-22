@@ -603,6 +603,30 @@ Cursor is deliberately outside this cursor-anchored empty-composer matrix becaus
 
 `zellij action dump-screen --pane-id <id> --ansi` was verified at zellij 0.44.0 to preserve ANSI styling (real Claude Code rendered inside a zellij pane dumped `ESC[m` `❯` U+00A0 for its idle composer row), which is the capability the zellij composer classifier reads.
 
+### 2026-09-21 Pi 0.87.0 cost footer through Herdr
+
+Verified on 2026-09-21 against Pi 0.87.0 under Herdr 0.9.0 with Herdr reporting the pane's native identity as Pi and its lifecycle state as idle.
+Pi drew this separator-pair composer followed by its path row and cost-and-mode footer:
+
+```text
+────────────────────────
+
+────────────────────────
+~/project (main)
+$0.000 (sub) 0.0%/272k (auto)                 (openai-codex) gpt-5.6-terra • medium
+```
+
+The footer's leading `$` matched the shared bare-shell-prompt signal, so the cursorless staleness check treated Pi's live footer as a dead shell below a stale separator pair and returned `unknown` for the genuinely empty composer.
+That verdict made `bin/fm-control.sh <task> relaunch` refuse before typing Pi's `/quit`, as the control plane requires whenever composer emptiness is unproved.
+After the fix, the full footer shape is treated as Pi furniture and the same idle pane reads `empty`; a lone `$`, a dollar amount followed by arbitrary text, and every other near miss remain shell evidence and still read `unknown`.
+
+`tests/fm-composer-lib.test.sh` pins the captured shape, the before-and-after verdict, and both dead-shell negatives.
+The live refresh guard launches the installed Pi without a prompt in an isolated Herdr lab session, waits for native idle, and checks the real rendered composer without spending model tokens:
+
+```sh
+tests/fm-herdr-pi-cost-footer-composer-live-e2e.test.sh
+```
+
 ### 2026-09-20 claude 2.1.236 statusLine footer through Herdr
 
 Verified on 2026-09-20 on macOS arm64 (Darwin 25.6.0) against Claude Code 2.1.236 running as Firstmate workers in Herdr 0.8.0 panes, read through Herdr's ANSI capture with its exact capability descriptor (`styled=1`, `cursor=0`, `identity=1`, `rows=20`).

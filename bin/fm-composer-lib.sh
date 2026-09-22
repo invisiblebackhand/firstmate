@@ -491,6 +491,22 @@ FM_COMPOSER_MODE_HINT_RE_DEFAULT='^[[:space:]]*(⏵|⏸)'
 # a middle dot. It is consulted only as the boundary BELOW a bare composer,
 # never on the composer row itself.
 FM_COMPOSER_OMP_STATUS_RE_DEFAULT='^[[:space:]]*(π|󰵗)[[:space:]]+·[[:space:]]|^[[:space:]]*'"$FM_OMP_SPINNER_FRAMES_RE"'[[:space:]]+[0-9]+[smh]([[:space:]]|$)|[[:space:]]·[[:space:]].*[0-9]+(\.[0-9]+)?%/[0-9]+K'
+# Pi (genuine Pi, not the omp wrapper) draws its own one-row status line
+# directly below its separator pair: a dollar-cost cell, a parenthesized
+# billing-mode tag, a context-usage cell, and a parenthesized reasoning-mode
+# tag, e.g. `$0.000 (sub) 0.0%/272k (auto)` (the row continues right-aligned
+# with `(<provider>) <model> • <effort>`, not matched here). Verified live
+# through Herdr on Pi 0.87.0/herdr 0.9.0 (task fm-pi-codex-auth): this exact
+# row's leading `$` satisfies FM_COMPOSER_SHELL_PROMPT_GLYPHS's bare-glyph
+# match, so without this carve-out the scan misreads Pi's own live footer as a
+# stale shell prompt sitting below its separator pair and the cursorless
+# staleness rule refuses a genuinely idle Pi composer as `unknown`. The
+# structural anchor (dollar amount, then a parenthesized tag, then a
+# percent-of-size ratio, then another parenthesized tag) is deliberately
+# distinctive from anything a real shell prompt renders, so a `$`-prefixed
+# row a human actually typed at a dead shell still trips the staleness rule
+# exactly as before.
+FM_COMPOSER_PI_FOOTER_RE_DEFAULT='^\$[0-9]+(\.[0-9]+)?[[:space:]]+\([a-z]+\)[[:space:]]+[0-9]+(\.[0-9]+)?%/[0-9]+[a-zA-Z]?[[:space:]]+\([a-z]+\)'
 # Braille-pattern cells (U+2800..U+28FF) are animation furniture: codex-cli
 # 0.154.0 draws an idle "starfield" of them on the row above its `›` prompt
 # row, on the `›` row itself after the dim `Ask Codex to do anything`
@@ -875,7 +891,13 @@ _fm_composer_scan_screen() {  # <plain-screen> <cursor-or-empty> [extract-wrap]
     # Bare agent-glyph rows: the glyph itself is the container proof. Bare
     # shell glyphs are deliberately not candidates (dead-shell rule). Keep
     # lower shell prompts as staleness evidence for cursorless selection.
-    if [ "$top" -lt 0 ] && fm_composer_leading_shell_glyph_var glyph "$trimmed"; then
+    # Pi's own footer furniture is excluded first: it carries a bare `$` the
+    # dead-shell rule would otherwise misread as a live shell prompt below a
+    # stale separator pair, even though the pair above it is Pi very much
+    # alive (see FM_COMPOSER_PI_FOOTER_RE_DEFAULT).
+    if _fm_composer_row_is_pi_footer "$trimmed"; then
+      :
+    elif [ "$top" -lt 0 ] && fm_composer_leading_shell_glyph_var glyph "$trimmed"; then
       FM_COMPOSER_SCAN_SHELL_ROW=$row
     elif fm_composer_leading_agent_glyph_var glyph "$trimmed"; then
       FM_COMPOSER_SCAN_BARE_ROW=$row
@@ -1180,6 +1202,14 @@ _fm_composer_classify_bare_row() {  # <screen> <styled> <row>
 # below a bare composer and must bound its wrap region exactly as an edge does.
 _fm_composer_row_is_omp_status() {  # <trimmed-row>
   fm_composer_idle_matches "$1" "${FM_COMPOSER_OMP_STATUS_RE:-$FM_COMPOSER_OMP_STATUS_RE_DEFAULT}" sensitive
+}
+
+# _fm_composer_row_is_pi_footer: 0 when the trimmed row is Pi's own cost/mode
+# status line (FM_COMPOSER_PI_FOOTER_RE_DEFAULT above) - furniture Pi draws
+# below its own live separator pair, never a shell prompt even though it
+# begins with the same bare `$` glyph the dead-shell rule watches for.
+_fm_composer_row_is_pi_footer() {  # <trimmed-row>
+  fm_composer_idle_matches "$1" "${FM_COMPOSER_PI_FOOTER_RE:-$FM_COMPOSER_PI_FOOTER_RE_DEFAULT}" sensitive
 }
 
 # _fm_composer_row_is_braille_furniture: 0 when the row is non-blank and its

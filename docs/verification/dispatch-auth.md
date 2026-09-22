@@ -139,6 +139,26 @@ No models matching "gpt-9.9-nonexistent"
 
 A listing that reaches the account and returns no row is the authoritative negative that does block a candidate.
 
+## Pi openai-codex readiness check does not prove its request path
+
+Established 2026-09-21 against Pi 0.87.0, immediately after a fresh `codex login` restored the account's full weekly quota.
+Every Pi worker dispatched on `harness=pi model=openai-codex/*` died on its first model call with `Error: Provided authentication token is expired.`, while every other surface on the same account read healthy:
+
+```sh
+quota-axi --provider codex                              # 100% remaining, no attention rows
+pi auth check --provider openai-codex --no-refresh       # ready
+pi auth print-bearer-token --provider openai-codex       # prints a JWT, exit 0
+echo 'Reply with exactly: OK' | codex exec --skip-git-repo-check   # succeeds
+```
+
+Intercepting Pi's outbound request during the failure and comparing it against Pi's own on-disk token store established the mechanism: Pi's request carried its own stored bearer token (hash-matched to the store), the server rejected exactly that token with `401 token_expired`, and the same account's server accepted a freshly minted token from the standalone Codex CLI (`200`).
+`pi auth check` validates only the token's local JWT expiry claim, not whether the upstream server still accepts it, so it reports `ready` for a token the server has already invalidated (observed here right after the account's credentials were rotated by a fresh `codex login` that Pi's own store did not pick up).
+A fresh Pi relaunch reproduced the identical rejection, so this is not a stale-process artifact.
+
+This is a defect in Pi's own credential refresh and request path, not in anything this repo owns: no script here calls `pi auth check`, `pi auth print-bearer-token`, or reads Pi's token store, and `quota-axi`'s account-level read of the `codex` provider is correct as far as it goes - it has no way to see that Pi's own stored token for this candidate has been separately invalidated.
+[`harness-adapters`'s Pi reference](../../.agents/skills/harness-adapters/references/harness/pi.md#auth-readiness-does-not-prove-the-request-path) carries this as a live dispatch-eligibility caveat until it is re-verified against a current Pi release; re-verify by repeating the four commands above on an account with healthy quota everywhere else and confirming whether the mismatch still reproduces.
+Report upstream with exactly this recipe: the four commands and their outputs, plus "the auth-check path validates only local expiry while the request path keeps sending an already-invalidated stored token, with no cross-check against a token the standalone CLI can still mint for the same account."
+
 ## Credential sources are independent per provider
 
 Verified 2026-07-30 against quota-axi 0.1.16.
