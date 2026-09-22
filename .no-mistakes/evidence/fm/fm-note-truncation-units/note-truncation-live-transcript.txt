@@ -1,0 +1,28 @@
+Lavish public answers output
+key=unicode-unit-call
+answer=approve
+label_utf8_valid=yes
+label_characters=512
+label_bytes=1024
+label_last_codepoint=U+00E9
+
+Captain-hold public answers output
+closed: sample-unicode-intake-call
+answers: closed=1 skipped=0
+persisted_answer_utf8_valid=yes
+persisted_answer_characters=512
+persisted_answer_bytes=1024
+persisted_answer_last_codepoint=U+00E9
+
+Persisted reconcile request provenance
+source_utf8_valid=yes
+source_characters=1024
+source_bytes=1025
+source_suffix=aaaaaaaé
+source_last_codepoint=U+00E9
+
+Lavish answers under LC_ALL=C
+label_utf8_valid=yes
+label_characters=512
+label_bytes=1024
+label_last_codepoint=U+00E9
