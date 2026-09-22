@@ -724,24 +724,34 @@ test_brew_probes_respect_the_sweep_budget() {
   pass "brew probes stop when the sweep budget is exhausted"
 }
 
-test_malformed_config_rejects_other_brew_formulae() {
-  local home out
-  home=$(make_home brew-other-formula)
-  write_config "$home" '{"tools":[{"name":"other","brew":{"formula":"other"}}]}'
+test_brew_formula_newer_version_is_reported() {
+  local home dir brew_dir out report
+  home=$(make_home brew-formula)
+  dir="$TMP_ROOT/brew-formula/bin"
+  brew_dir="$TMP_ROOT/brew-formula/brew-bin"
+  make_copy "$dir" "$TOOL" 'myformula 0.8.0'
+  mkdir -p "$brew_dir"
+  cat > "$brew_dir/brew" <<'SH'
+#!/usr/bin/env bash
+if [ "${1:-}" = "outdated" ]; then
+  [ "${HOMEBREW_NO_AUTO_UPDATE:-}" = 1 ] || exit 2
+  [ "${HOMEBREW_FORCE_API_AUTO_UPDATE+x}" != x ] || exit 2
+  [ "${2:-}" = "--json=v2" ] || exit 2
+  [ "${3:-}" = "--formula" ] || exit 2
+  [ "${4:-}" = "myformula" ] || exit 2
+  printf '{"formulae":[{"name":"myformula","installed_versions":["0.8.0"],"current_version":"0.9.0"}],"casks":[]}\n'
+  exit 1
+fi
+exit 0
+SH
+  chmod 0755 "$brew_dir/brew"
+  write_config "$home" "{\"tools\":[{\"name\":\"myformula\",\"command\":\"$TOOL\",\"brew\":{\"formula\":\"myformula\"}}]}"
   out="$home/out.txt"
-  run_check "$home" "$PATH" "$out"
-  assert_contains "$(cat "$out")" "only tool herdr may use brew.formula herdr" "a generic brew formula was accepted"
-  pass "brew formula support is restricted to Herdr"
-}
-
-test_malformed_config_rejects_herdr_cask() {
-  local home out
-  home=$(make_home brew-herdr-cask)
-  write_config "$home" '{"tools":[{"name":"herdr","brew":{"cask":"herdr"}}]}'
-  out="$home/out.txt"
-  run_check "$home" "$PATH" "$out"
-  assert_contains "$(cat "$out")" "tool herdr must use brew.formula herdr" "a Herdr cask source was accepted"
-  pass "Herdr must use its Homebrew formula source"
+  run_check "$home" "$(fixture_path "$dir:$brew_dir")" "$out"
+  report=$(cat "$out")
+  assert_contains "$report" "myformula update available: brew has 0.9.0" "a generic brew formula source with a newer version was not reported"
+  assert_not_contains "$report" "check failed" "the generic formula probe reported a failure instead of the update"
+  pass "a generic brew formula source reports when brew lists it as outdated"
 }
 
 test_malformed_config_with_npm_needs_command() {
@@ -1464,8 +1474,7 @@ test_brew_not_installed_is_reported
 test_brew_probe_failure_is_reported
 test_brew_unparseable_version_is_reported
 test_brew_probes_respect_the_sweep_budget
-test_malformed_config_rejects_other_brew_formulae
-test_malformed_config_rejects_herdr_cask
+test_brew_formula_newer_version_is_reported
 test_malformed_config_with_npm_needs_command
 test_npm_older_version_is_silent
 test_npm_probe_timeout_is_reported

@@ -628,7 +628,7 @@ This section is the single owner of the canonical schema.
       },
       "brew": {
         "cask": "<optional Homebrew cask name>",
-        "formula": "<optional; only accepted for tool herdr with value herdr>"
+        "formula": "<optional Homebrew formula name>"
       }
     }
   ]
@@ -645,7 +645,7 @@ An omitted `branch` uses the remote's default branch, taken from the clone's own
 An `npm` entry requires `command`, queries the npm registry for the package's latest published version, and reports when it is newer than the installed version on PATH.
 This is the natural source for npm-published tools such as `lavish-axi`, `quota-axi`, `gh-axi`, `tasks-axi`, `chrome-devtools-axi`, and `backpass`.
 A `brew` entry uses `brew outdated` to check whether a Homebrew package has a newer version available and specifies exactly one of `cask` or `formula`.
-`cask` is the general source, while the only accepted `formula` is `herdr` on the `herdr` tool.
+`cask` names a Homebrew cask and `formula` names a Homebrew formula.
 Herdr is distributed as a Homebrew formula, while Codex is distributed as a cask.
 For compatibility with existing command-only registries, same-name commands for those six npm packages default to their same-name npm source, while same-name `herdr` and `codex` commands default to the Herdr formula and Codex cask when neither source is explicit.
 All probe kinds are read-only and bounded, and a probe that cannot answer is reported as a check failure rather than assumed current.
