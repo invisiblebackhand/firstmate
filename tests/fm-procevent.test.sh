@@ -3285,6 +3285,28 @@ assert_contains "$answers_out" $'expanded-substring\tapprove\tUnsafe configurati
   || fail "expanded choices did not produce exactly three keyed answers"
 pass "expanded prompts preserve nested targets, typed notes, and keyed answers"
 
+# This capture is written as UTF-8 text, then read by the actual Lavish result
+# parser and the public `answers` command.  Its encoded label is 1,026 bytes,
+# so a 512-byte cap would split the final character.  The adapter's one 512
+# character cap must instead emit 512 whole characters, or 1,024 bytes here.
+unicode_label=$(perl -CS -e 'print "\x{00e9}" x 513')
+cat > "$READ" <<EOF
+session:
+  file: /review.html
+  status: feedback
+prompts[1]{uid,prompt,selector,tag,text}:
+  "unicode-unit","Context data: {\\"schema\\":\\"fm-bearings-answer.v1\\",\\"question\\":\\"unicode-unit-call\\",\\"selection\\":\\"approve\\",\\"note\\":\\"\\"}","section#unicode",choice,"$unicode_label"
+EOF
+answers_out=$("$ROOT/bin/fm-procevent-lavish.sh" answers "$READ") \
+  || fail "answers refused the UTF-8 capture"
+unicode_label=${answers_out#*$'\t'}
+unicode_label=${unicode_label#*$'\t'}
+[ "$(printf '%s' "$unicode_label" | wc -m | tr -d ' ')" = 512 ] \
+  || fail "the UTF-8 capture was not truncated to 512 characters"
+[ "$(printf '%s' "$unicode_label" | wc -c | tr -d ' ')" = 1024 ] \
+  || fail "the UTF-8 capture was truncated by bytes or split a character"
+pass "actual Lavish UTF-8 capture truncates at 512 characters (1024 bytes)"
+
 cat > "$READ" <<'EOF'
 session:
   file: /review.html

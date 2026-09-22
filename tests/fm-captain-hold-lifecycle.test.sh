@@ -1537,10 +1537,10 @@ test_secondmate_reconcile_publishes_before_request_retirement() {
 # answer time, a card-declared release mode frees held work, freeform prose can
 # forge nothing, and a replayed capture is idempotent.
 test_bound_channel_answers_close_at_answer_time() {
-  local home id sid artifact result out show rc note_512
+  local home id sid artifact result out show rc note_512 unicode_note unicode_intake_512 unicode_intake_513
   home=$(make_home channel-answer-closure)
   id=sample-eval-proposal
-  note_512=$(printf '%0512d' 0 | tr '0' n)
+  note_512=$(perl -CS -e 'print "\x{00e9}" x 512')
   mkdir -p "$home/data/$id"
   tasks_in "$home" add "$id" "Propose sample eval changes" --kind scout --repo sample --start >/dev/null \
     || fail "could not create the review origin"
@@ -1611,6 +1611,11 @@ EOF
   printf 'lavish\n' > "$home/state/procevent-inbox/$sid.1.adapter"
 
   out=$(run_lavish "$home" answers "$result") || fail "could not read the captured answers"
+  unicode_note=$(printf '%s\n' "$out" | awk -F '\t' '$1 == "sample-membership-call" { print $3; exit }')
+  [ "$(printf '%s' "$unicode_note" | wc -m | tr -d ' ')" = 512 ] \
+    || fail "the captured UTF-8 rationale did not contain 512 characters"
+  [ "$(printf '%s' "$unicode_note" | wc -c | tr -d ' ')" = 1024 ] \
+    || fail "the captured UTF-8 rationale was byte-truncated or split"
   assert_contains "$out" "sample-membership-call	gold-only" \
     "a repeated reconcile selection deleted another card's answer"
   assert_contains "$out" "$(printf 'sample-membership-call\tgold-only\t%s' "$note_512")" \
@@ -1733,6 +1738,19 @@ SH
     || fail "could not deliberately close the bare legacy reconcile call"
   run_captain "$home" answer sample-old-reconcile-note --decision-file "$home/invalid-close.txt" >/dev/null \
     || fail "could not deliberately close the annotated legacy reconcile call"
+  tasks_in "$home" add sample-unicode-intake-call "Record a UTF-8 rationale" \
+    --kind captain --repo sample >/dev/null \
+    || fail "could not create the UTF-8 keyed-intake fixture"
+  run_captain "$home" hold sample-unicode-intake-call --reason "captain rationale pending" >/dev/null \
+    || fail "could not hold the UTF-8 keyed-intake fixture"
+  unicode_intake_512=$(perl -CS -e 'print "\x{00e9}" x 512')
+  unicode_intake_513=$(perl -CS -e 'print "\x{00e9}" x 513')
+  printf 'sample-unicode-intake-call\t%s\t\n' "$unicode_intake_513" \
+    | LC_ALL=C run_captain "$home" answers --source "UTF-8 keyed intake fixture" >/dev/null \
+    || fail "the UTF-8 keyed intake could not close its held task"
+  show=$(tasks_in "$home" show sample-unicode-intake-call --full)
+  assert_contains "$show" "Answer: $unicode_intake_512" \
+    "the keyed intake did not use its 512-character cap under the C locale"
   run_captain "$home" verify "$id" >/dev/null \
     || fail "answered calls did not satisfy the completion gate"
   pass "a bound channel's captured answers close their captain-held tasks at answer time"
@@ -1798,6 +1816,33 @@ test_reconcile_never_closes_through_the_keyed_answer_intake() {
   list=$(run_captain "$home" reconcile list)
   assert_contains "$list" "reconcile-requests: 2" "a replayed reconcile selection duplicated the obligation: $list"
   pass "only a bound captured source creates reconcile requests"
+}
+
+test_reconcile_provenance_keeps_its_utf8_boundary() {
+  local home source note expected stored request
+  home=$(make_home reconcile-provenance-utf8)
+  source=$(perl -e 'print "s" x 1000')
+  note=$(perl -CS -e 'print "a" x 7, "\x{00e9}z"')
+  expected="$source; captain note: $(perl -CS -e 'print "a" x 7, "\x{00e9}"')"
+  tasks_in "$home" add sample-unicode-reconcile "Re-check a UTF-8 rationale" \
+    --kind captain --repo sample >/dev/null \
+    || fail "could not create the UTF-8 reconcile fixture"
+  run_captain "$home" hold sample-unicode-reconcile \
+    --reason "captain rationale pending" >/dev/null \
+    || fail "could not hold the UTF-8 reconcile fixture"
+  run_captain "$home" bind unicode-reconcile >/dev/null \
+    || fail "could not bind the UTF-8 reconcile fixture"
+
+  printf 'sample-unicode-reconcile\t%s\n' "$note" \
+    | LC_ALL=C run_captain "$home" reconcile-requests \
+        --source-id unicode-reconcile --source "$source" >/dev/null \
+    || fail "could not record the UTF-8 reconcile request"
+  request="$home/state/reconcile-requests/sample-unicode-reconcile.request"
+  stored=$(sed -n 's/^source=//p' "$request")
+  [ "$stored" = "$expected" ] \
+    || fail "the reconcile provenance split or miscounted its boundary UTF-8 character"
+
+  pass "reconcile provenance truncates UTF-8 by character under the C locale"
 }
 
 test_normal_answers_retire_pending_reconcile_requests() {
@@ -4053,6 +4098,7 @@ test_secondmate_home_publishes_holds_and_answers
 test_secondmate_reconcile_publishes_before_request_retirement
 test_bound_channel_answers_close_at_answer_time
 test_reconcile_never_closes_through_the_keyed_answer_intake
+test_reconcile_provenance_keeps_its_utf8_boundary
 test_normal_answers_retire_pending_reconcile_requests
 test_reconcile_closes_with_evidence_or_keeps_the_call_open
 test_reconcile_outcomes_retry_partial_failures_once

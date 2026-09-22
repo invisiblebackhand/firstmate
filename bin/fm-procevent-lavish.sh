@@ -611,6 +611,8 @@ cmd_choice_rows() {
           || ($data->{close} ne "done" && $data->{close} ne "release");
         $mode = $data->{close};
       }
+      # lavish_rows decodes the UTF-8 capture, so these matching 512-unit
+      # bounds are characters rather than encoded bytes.
       my $label = defined $f{text} ? $f{text} : "";
       s/[\x00-\x1f\x7f]/ /g for ($answer, $note, $label);
       if (length($selected) && length($note)) {
