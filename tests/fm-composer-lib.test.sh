@@ -619,6 +619,37 @@ test_matrix_pi_separated_needs_identity() {
   pass "matrix: pi's separated composer needs identity + structure; the blank row alone never proves it"
 }
 
+test_matrix_pi_footer_furniture_not_dead_shell() {
+  # Real idle pi 0.87.0 under Herdr 0.9.0 (task fm-pi-codex-auth, captured
+  # live): a cwd/branch row then pi's own cost/mode footer directly below its
+  # separator pair. That footer's leading `$` (a dollar amount, not a prompt)
+  # satisfies FM_COMPOSER_SHELL_PROMPT_GLYPHS's bare-glyph match, so before the
+  # carve-out below the dead-shell staleness rule misread pi's own live footer
+  # as a stale shell prompt sitting below the pair and refused a genuinely
+  # idle pi composer as `unknown` - the exact refusal
+  # `bin/fm-control.sh <task> relaunch` hit trying to type pi's `/quit`.
+  local screen pi_idle
+  pi_idle=$(printf 'pi\tidle')
+  screen=$'transcript\n────────────────────────\n\n────────────────────────\n~/project (main)\n$0.000 (sub) 0.0%/272k (auto)                                                     (openai-codex) gpt-5.6-terra • medium'
+  assert_screen "pi idle under its own cost footer on herdr" empty "$CAPS_STYLED" "$screen" '' "$pi_idle"
+  pass "matrix: pi's own cost/mode footer is furniture, not a dead-shell prompt (task fm-pi-codex-auth)"
+}
+
+test_pi_footer_carveout_does_not_loosen_dead_shell_rule() {
+  # The guard's core protection must survive the furniture carve-out above: a
+  # REAL dead shell prompt below a stale pi pair (pi exited; a plain shell's
+  # bare `$` sits where its footer used to be) must still refuse, and a
+  # dollar-leading row that does not match the footer's full structural shape
+  # must still count as staleness evidence, never treated as pi's furniture.
+  local pi_idle stale near_miss
+  pi_idle=$(printf 'pi\tidle')
+  stale=$'transcript\n────────────────────────\n\n────────────────────────\nprocess exited\n$'
+  assert_screen "a real dead shell below a stale pi pair still refuses" unknown "$CAPS_STYLED" "$stale" '' "$pi_idle"
+  near_miss=$'transcript\n────────────────────────\n\n────────────────────────\n$0.000 typed at a real prompt'
+  assert_screen "a dollar row without the footer's full shape still counts as a dead shell" unknown "$CAPS_STYLED" "$near_miss" '' "$pi_idle"
+  pass "fm_composer_classify_screen: the pi footer carve-out never loosens the dead-shell staleness rule"
+}
+
 test_matrix_opencode_leftbar_signals() {
   # Real idle opencode: `┃`-prefixed rows holding an "Ask anything" hint,
   # blanks, and a Build-mode footer. Two independent idle signals: the shared
@@ -928,6 +959,8 @@ test_matrix_herdr_halfblock_rule_bounds_bare_wrap
 test_matrix_omp_status_row_bounds_bare_composer
 test_matrix_codex_idle_starfield_furniture
 test_matrix_pi_separated_needs_identity
+test_matrix_pi_footer_furniture_not_dead_shell
+test_pi_footer_carveout_does_not_loosen_dead_shell_rule
 test_matrix_opencode_leftbar_signals
 test_matrix_grok_titled_bottom_border
 test_matrix_kimi_bordered_shell_glyph_box
