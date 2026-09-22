@@ -1,0 +1,43 @@
+Live product validation for fm-tool-update-check.sh
+Target: 87bc1eae1ceeb6ede4fe687c31e122ec7e6f9315
+
+=== npm-command-only-outdated ===
+config: {"tools":[{"name":"lavish-axi","command":"lavish-axi"}]}
+stdout: tool updates: lavish-axi update available: installed 0.1.75 but npm has 0.1.76
+persisted reported state: lavish-axi update available: installed 0.1.75 but npm has 0.1.76
+
+=== npm-command-only-path-skew ===
+config: {"tools":[{"name":"lavish-axi","command":"lavish-axi"}]}
+stdout: tool updates: lavish-axi update not in effect: PATH resolves 0.1.75 at /tmp/fm-tool-live.P9ttcr/old/node_modules/.bin/lavish-axi but 0.1.76 is installed at /tmp/fm-tool-live.P9ttcr/new/node_modules/.bin/lavish-axi
+persisted reported state: lavish-axi update not in effect: PATH resolves 0.1.75 at /tmp/fm-tool-live.P9ttcr/old/node_modules/.bin/lavish-axi but 0.1.76 is installed at /tmp/fm-tool-live.P9ttcr/new/node_modules/.bin/lavish-axi
+
+=== herdr-command-only-formula ===
+config: {"tools":[{"name":"herdr","command":"herdr","version_args":["--version"]}]}
+stdout: tool updates: herdr update available: brew has 0.9.1
+persisted reported state: herdr update available: brew has 0.9.1
+
+=== codex-command-only-current ===
+config: {"tools":[{"name":"codex","command":"codex","version_args":["--version"]}]}
+stdout: <silent>
+persisted reported state: 
+
+=== herdr-cask-refused ===
+config: {"tools":[{"name":"herdr","brew":{"cask":"herdr"}}]}
+stdout: tool updates: watched tool registry: tool herdr must use brew.formula herdr
+persisted reported state: watched tool registry: tool herdr must use brew.formula herdr
+
+=== all-six-command-only-npm-tools-current ===
+config: six named npm tools with command only
+stdout: <silent>
+persisted reported state: 
+
+=== scoped-npm-package-current ===
+config: {"tools":[{"name":"pi","command":"pi","npm":{"package":"@earendil-works/pi-coding-agent"}}]}
+stdout: <silent>
+persisted reported state: 
+
+=== generic-formula-source ===
+config: {"tools":[{"name":"herdr-alt","command":"herdr","brew":{"formula":"herdr"}}]}
+stdout: tool updates: herdr-alt update available: brew has 0.9.1
+persisted reported state: herdr-alt update available: brew has 0.9.1
+
