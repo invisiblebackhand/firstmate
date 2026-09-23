@@ -546,9 +546,9 @@ Firstmate passes its profile line unless it states a reason to override, such as
 The resolver and bootstrap copy an environment-provided key into a non-exported private variable and unset `TYPESAFE_API_KEY` before launching child processes, so the secret is absent from child environments.
 The resolver sends the key to `curl` only as a header read from a file descriptor, never on argv, and nothing prints, logs, or writes it.
 The resolver fixes the endpoint at `https://api.typesafe.ai`, model at `jev-1.13.0`, confidence floor at 0.6, and request timeout at 5 seconds; `TYPESAFE_API_KEY` is its only resolver-specific environment setting.
-Every opted-in resolver attempt appends one JSON line to the topmost reachable local Firstmate root's gitignored `state/jev-usage.jsonl` with `at` (Unix epoch seconds), `task` (the `--project` label), `status`, `rule`, `confidence`, the answering `model`, `input_tokens`, and `x-typesafe-request-id`.
-The primary home and its local descendant homes contribute to that one local ledger, while independent and remote-rooted homes keep separate ledgers.
-The ledger is keyed by neither TypeSafe account nor API key, so homes using different keys below one local root share it and can produce a local alert that does not describe any single account; failed or partial attempts use `status: "error"` and retain nulls for metadata the service did not return validly.
+Every opted-in resolver attempt appends one JSON line to that Firstmate home's gitignored `state/jev-usage.jsonl` with `at` (Unix epoch seconds), `task` (the `--project` label), `status`, `rule`, `confidence`, the answering `model`, `input_tokens`, and `x-typesafe-request-id`.
+Each home keeps a separate ledger containing only resolver calls made from that home; it is keyed by neither TypeSafe account nor API key and excludes the compaction adviser and every other Jev consumer.
+Failed or partial attempts use `status: "error"` and retain nulls for metadata the service did not return validly.
 The ledger never contains brief text or credentials.
 The live rule-match evidence is recorded in [`verification/dispatch-resolve.md`](verification/dispatch-resolve.md).
 
@@ -556,7 +556,7 @@ The live rule-match evidence is recorded in [`verification/dispatch-resolve.md`]
 
 `bin/fm-jev-check.sh check` is the one-line custom watcher check for the TypeSafe/Jev follow-up.
 It makes the unmetered `GET /v1/models` request and reports a changed `jev-latest.release_date`, with the required reminder to replay the dispatch tests before changing a pinned model.
-It also sums that local-root ledger at the documented price of USD 0.042 per million input tokens and alerts when recorded local usage reaches USD 10 in the current UTC month or USD 1 in the current UTC calendar day.
+It also sums that home's resolver ledger at the documented price of USD 0.042 per million input tokens and alerts when recorded local usage reaches USD 10 in the current UTC month or USD 1 in the current UTC calendar day.
 These local alerts are attribution aids only; the TypeSafe console is the account-wide authority for the USD 10 monthly threshold.
 The monitor records its last alias date and period-aware monthly and daily threshold state in gitignored `state/` files so an unchanged condition does not wake every polling cycle or suppress a new-period alert.
 

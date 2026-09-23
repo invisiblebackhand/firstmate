@@ -43,11 +43,11 @@
 #   escalate  -> the rule requires captain approval, no candidate is rankable, or a genuine tie
 #   error     -> API, network, response, or quota-axi failure; decide as today
 #   Every outcome exits 0 so an intake is never blocked by this tool.
-#   Every opted-in resolution attempt appends one JSON object to the topmost
-#   reachable local Firstmate root's state/jev-usage.jsonl. Primary and local
-#   descendant homes share it; independent and remote-rooted homes do not.
-#   It is keyed by neither TypeSafe account nor API key, so different keys
-#   below one local root share the ledger and its local spend alerts.
+#   Every opted-in resolution attempt appends one JSON object to this
+#   Firstmate home's state/jev-usage.jsonl. It records only resolver calls from
+#   this home, is keyed by neither TypeSafe account nor API key, and excludes
+#   other Jev consumers. TypeSafe's console is the account-wide USD 10/month
+#   authority; this ledger supports only local attribution alerts.
 #   Exit 2 only for a usage or configuration error (unreadable brief, an
 #   existing unreadable rules file, malformed rules, or missing jq), which is
 #   actionable, never selected around.
@@ -226,16 +226,11 @@ emit_error() {
 }
 
 append_ledger() {
-  local local_root record ledger state result
+  local record ledger state result
   [ "${LEDGER_WRITTEN:-0}" -eq 0 ] || return 0
   result=${RESULT:-}
   [ -n "$result" ] || result='{}'
-  if ! command -v fm_firstmate_root_home >/dev/null 2>&1; then
-    # shellcheck source=bin/fm-wake-lib.sh
-    . "$SCRIPT_DIR/fm-wake-lib.sh"
-  fi
-  local_root=$(fm_firstmate_root_home "$FM_HOME") || return 1
-  state="$local_root/state"
+  state="$FM_HOME/state"
   ledger="$state/jev-usage.jsonl"
   mkdir -p "$state" || return 1
   [ -d "$state" ] && [ ! -L "$state" ] || return 1

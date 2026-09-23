@@ -267,16 +267,18 @@ assert_equals 'req_fixture_123' "$(jq -r '."x-typesafe-request-id"' "$ledger")" 
 assert_not_contains "$(cat "$ledger")" 'off-by-one in the pager' "ledger never stores brief text"
 pass "clear: one rule Choice request, key on the fd header only, spendPriority argmax over every candidate"
 
-LOCAL_ROOT="$TMP_ROOT/local-root"
-mkdir -p "$LOCAL_ROOT/state"
-printf 'schema=fm-secondmate-parent.v1\nroute=local\nparent_home=%s\n' "$LOCAL_ROOT" > "$HOME_DIR/.fm-secondmate-parent"
+PARENT_HOME="$TMP_ROOT/parent-home"
+mkdir -p "$PARENT_HOME/state"
+rm -f "$HOME_DIR/state/jev-usage.jsonl"
+printf 'schema=fm-secondmate-parent.v1\nroute=local\nparent_home=%s\n' "$PARENT_HOME" > "$HOME_DIR/.fm-secondmate-parent"
 reset_log
 write_response "$RESPONSE" rule_4 0.9
 TYPESAFE_API_KEY=$KEY run code out err "$BRIEF" --project secondmate-task
 rm -f "$HOME_DIR/.fm-secondmate-parent"
-assert_present "$LOCAL_ROOT/state/jev-usage.jsonl" "a local secondmate writes the local-root ledger"
-assert_equals 'secondmate-task' "$(jq -r '.task' "$LOCAL_ROOT/state/jev-usage.jsonl")" "the shared local record retains its originating task label"
-pass "primary and local-secondmate resolver calls share the local-root ledger"
+assert_present "$HOME_DIR/state/jev-usage.jsonl" "a local secondmate writes its own resolver ledger"
+assert_absent "$PARENT_HOME/state/jev-usage.jsonl" "a local secondmate wrote its parent's resolver ledger"
+assert_equals 'secondmate-task' "$(jq -r '.task' "$HOME_DIR/state/jev-usage.jsonl")" "the per-home record retains its task label"
+pass "local-secondmate resolver calls stay in their own home ledger"
 
 # --- rules are snapshotted and line output is injection-safe -------------------
 MUTATED_RULES="$TMP_ROOT/mutated-rules.json"

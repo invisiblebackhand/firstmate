@@ -73,7 +73,7 @@ test_alias_move_records_baseline_then_alerts_once() {
   pass "Jev alias move establishes a baseline and reports once with the replay gate"
 }
 
-test_spend_thresholds_use_the_local_root_ledger() {
+test_spend_thresholds_use_the_per_home_resolver_ledger() {
   local home out ledger
   home=$(make_home spend)
   out="$TMP_ROOT/spend/out"
@@ -81,18 +81,18 @@ test_spend_thresholds_use_the_local_root_ledger() {
   write_models 2026-09-10
   printf '%s\n' '{"at":1760000000,"task":"fixture","status":"clear","rule":"rule_1","confidence":0.9,"model":"jev-1.13.0","input_tokens":25000000,"x-typesafe-request-id":"req_fixture"}' > "$ledger"
   run_check "$home" "$out"
-  assert_contains "$(cat "$out")" 'Jev spend alert: local root ledger UTC calendar day 1.05 USD reaches the 1 USD daily threshold' "the daily threshold was not calculated from fixture tokens"
+  assert_contains "$(cat "$out")" 'Jev spend alert: per-home resolver ledger UTC calendar day 1.05 USD reaches the 1 USD daily threshold' "the daily threshold was not calculated from fixture tokens"
   assert_not_contains "$(cat "$out")" 'month-to-date' "the month threshold fired below 10 USD"
   run_check "$home" "$out"
   [ ! -s "$out" ] || fail "an unchanged spend threshold repeated: $(cat "$out")"
 
   printf '%s\n' '{"at":1760000000,"task":"fixture","status":"clear","rule":"rule_1","confidence":0.9,"model":"jev-1.13.0","input_tokens":220000000,"x-typesafe-request-id":"req_fixture_2"}' >> "$ledger"
   run_check "$home" "$out"
-  assert_contains "$(cat "$out")" 'local root ledger month-to-date 10.29 USD reaches the 10 USD local threshold' "the monthly threshold was not calculated from fixture tokens"
+  assert_contains "$(cat "$out")" 'per-home resolver ledger month-to-date 10.29 USD reaches the 10 USD local threshold' "the monthly threshold was not calculated from fixture tokens"
   printf '%s\n' '{"at":1760000000,"task":"fixture","status":"clear","rule":"rule_1","confidence":0.9,"model":"jev-1.13.0","input_tokens":1000000,"x-typesafe-request-id":"req_fixture_3"}' >> "$ledger"
   run_check "$home" "$out"
   [ ! -s "$out" ] || fail "additional spend above an already-crossed threshold repeated: $(cat "$out")"
-  pass "Jev spend thresholds read the local-root ledger and do not repeat unchanged alerts"
+  pass "Jev spend thresholds read the per-home resolver ledger without repeating alerts"
 }
 
 test_malformed_local_record_fails_closed() {
@@ -152,9 +152,9 @@ test_future_records_do_not_count_toward_spend() {
   pass "future-dated local records are excluded from daily and monthly spend"
 }
 
-test_local_homes_read_one_local_root_ledger() {
+test_local_homes_keep_separate_resolver_ledgers() {
   local root home out ledger
-  root=$(make_home local-root)
+  root=$(make_home parent-home)
   home=$(make_home local-child)
   out="$TMP_ROOT/local-child/out"
   ledger="$root/state/jev-usage.jsonl"
@@ -162,8 +162,13 @@ test_local_homes_read_one_local_root_ledger() {
   printf 'schema=fm-secondmate-parent.v1\nroute=local\nparent_home=%s\n' "$root" > "$home/.fm-secondmate-parent"
   printf '%s\n' '{"at":1760000000,"task":"primary","status":"clear","rule":"rule_1","confidence":0.9,"model":"jev-1.13.0","input_tokens":25000000,"x-typesafe-request-id":"req_primary"}' > "$ledger"
   run_check "$home" "$out"
-  assert_contains "$(cat "$out")" 'Jev spend alert: local root ledger UTC calendar day 1.05 USD reaches the 1 USD daily threshold' "a local child home did not read the local-root ledger"
-  pass "local homes monitor one local-root ledger"
+  assert_not_contains "$(cat "$out")" 'Jev spend alert:' "a local child counted its parent's resolver ledger"
+
+  ledger="$home/state/jev-usage.jsonl"
+  printf '%s\n' '{"at":1760000000,"task":"child","status":"clear","rule":"rule_1","confidence":0.9,"model":"jev-1.13.0","input_tokens":25000000,"x-typesafe-request-id":"req_child"}' > "$ledger"
+  run_check "$home" "$out"
+  assert_contains "$(cat "$out")" 'Jev spend alert: per-home resolver ledger UTC calendar day 1.05 USD reaches the 1 USD daily threshold' "a local child did not count its own resolver ledger"
+  pass "local homes keep separate resolver ledgers"
 }
 
 test_daily_threshold_does_not_cross_utc_midnight() {
@@ -176,7 +181,7 @@ test_daily_threshold_does_not_cross_utc_midnight() {
 
   printf '%s\n' '{"at":1767225540,"task":"december-close","status":"clear","rule":"rule_1","confidence":0.9,"model":"jev-1.13.0","input_tokens":25000000,"x-typesafe-request-id":"req_december_close"}' > "$ledger"
   run_check "$home" "$out" 1767225540
-  assert_contains "$(cat "$out")" 'local root ledger UTC calendar day 1.05 USD reaches the 1 USD daily threshold' "the 23:59 UTC call did not alert on its own day"
+  assert_contains "$(cat "$out")" 'per-home resolver ledger UTC calendar day 1.05 USD reaches the 1 USD daily threshold' "the 23:59 UTC call did not alert on its own day"
   assert_equals '2025-12-31' "$(jq -r '.daily.period' "$state")" "the first daily alert used the wrong UTC date"
 
   run_check "$home" "$out" 1767225660
@@ -196,13 +201,13 @@ test_threshold_state_is_period_aware() {
 
   printf '%s\n' '{"at":1764547200,"task":"december","status":"clear","rule":"rule_1","confidence":0.9,"model":"jev-1.13.0","input_tokens":240000000,"x-typesafe-request-id":"req_december"}' > "$ledger"
   run_check "$home" "$out" 1767139200
-  assert_contains "$(cat "$out")" 'local root ledger month-to-date 10.08 USD reaches the 10 USD local threshold' "December did not raise its monthly alert"
+  assert_contains "$(cat "$out")" 'per-home resolver ledger month-to-date 10.08 USD reaches the 10 USD local threshold' "December did not raise its monthly alert"
   assert_equals '2025-12' "$(jq -r '.monthly.period' "$state")" "December monthly state omitted its period"
   assert_equals 'false' "$(jq -r '.daily.alert' "$state")" "old December usage incorrectly raised the daily flag"
 
   printf '%s\n' '{"at":1767225600,"task":"january","status":"clear","rule":"rule_1","confidence":0.9,"model":"jev-1.13.0","input_tokens":240000000,"x-typesafe-request-id":"req_january"}' > "$ledger"
   run_check "$home" "$out" 1769817600
-  assert_contains "$(cat "$out")" 'local root ledger month-to-date 10.08 USD reaches the 10 USD local threshold' "January reused December's monthly dedupe state"
+  assert_contains "$(cat "$out")" 'per-home resolver ledger month-to-date 10.08 USD reaches the 10 USD local threshold' "January reused December's monthly dedupe state"
   assert_equals '2026-01' "$(jq -r '.monthly.period' "$state")" "January monthly state omitted its period"
   assert_equals '2026-01-31' "$(jq -r '.daily.period' "$state")" "January daily state omitted its period"
   pass "monthly and daily alert state carries independent UTC periods"
@@ -235,16 +240,37 @@ test_arm_registers_a_watcher_shim_without_running_the_check() {
   pass "Jev monitor arms through the registered custom-check contract"
 }
 
+test_disarm_refuses_a_symlinked_state_directory() {
+  local home target link out status
+  home=$(make_home disarm-symlink)
+  target="$TMP_ROOT/disarm-symlink/target"
+  link="$TMP_ROOT/disarm-symlink/state-link"
+  out="$TMP_ROOT/disarm-symlink/out"
+  mkdir -p "$target"
+  printf '%s\n' '2026-09-10' > "$target/.jev-monitor-alias"
+  printf '%s\n' '{"monthly":{"period":"2026-09","alert":false},"daily":{"period":"2026-09-23","alert":false}}' > "$target/.jev-monitor-spend"
+  ln -s "$target" "$link"
+
+  status=0
+  FM_HOME="$home" FM_STATE_OVERRIDE="$link" "$CHECK" disarm >"$out" 2>&1 || status=$?
+  expect_code 1 "$status" "symlinked-state disarm exit"
+  assert_contains "$(cat "$out")" 'refusing to disarm with unavailable state directory' "disarm did not report the unsafe state directory"
+  assert_equals '2026-09-10' "$(cat "$target/.jev-monitor-alias")" "disarm followed the state symlink and removed alias state"
+  assert_present "$target/.jev-monitor-spend" "disarm followed the state symlink and removed spend state"
+  pass "Jev monitor disarm refuses symlinked state before cleanup"
+}
+
 test_alias_move_records_baseline_then_alerts_once
-test_spend_thresholds_use_the_local_root_ledger
+test_spend_thresholds_use_the_per_home_resolver_ledger
 test_malformed_local_record_fails_closed
 test_models_response_requires_the_full_listing_schema
 test_impossible_release_dates_never_change_alias_state
 test_future_records_do_not_count_toward_spend
-test_local_homes_read_one_local_root_ledger
+test_local_homes_keep_separate_resolver_ledgers
 test_daily_threshold_does_not_cross_utc_midnight
 test_threshold_state_is_period_aware
 test_absent_key_never_calls_the_models_endpoint
 test_arm_registers_a_watcher_shim_without_running_the_check
+test_disarm_refuses_a_symlinked_state_directory
 
 printf '# all fm-jev-check tests passed\n'

@@ -1,17 +1,16 @@
 #!/usr/bin/env bash
-# fm-jev-check.sh - report a Jev alias move or local-root-ledger spend threshold.
+# fm-jev-check.sh - report a Jev alias move or per-home resolver spend threshold.
 #
 # Usage:
 #   fm-jev-check.sh [check]
 #   fm-jev-check.sh arm
 #   fm-jev-check.sh disarm
 #
-# `check` emits one line only when jev-latest has a new release date or the
-# topmost reachable local Firstmate root's ledger reaches USD 10 in the current
-# UTC month or USD 1 in the current UTC calendar day. Primary and local
-# descendant homes share it; independent and remote-rooted homes do not. It is
-# keyed by neither TypeSafe account nor API key, so different keys under one
-# local root share its alerts.
+# `check` emits one line only when jev-latest has a new release date or this
+# Firstmate home's resolver ledger reaches USD 10 in the current UTC month or
+# USD 1 in the current UTC calendar day. The ledger is keyed by neither
+# TypeSafe account nor API key and excludes other Jev consumers. TypeSafe's
+# console is the account-wide USD 10/month authority; these are local alerts.
 # `arm` writes and registers state/jev-monitor.check.sh for watcher polling.
 # `disarm` removes that shim, its trust binding, and this check's records.
 #
@@ -48,7 +47,7 @@ PRICE_PER_INPUT_TOKEN=0.000000042
 usage() {
   cat <<'EOF'
 Usage:
-  fm-jev-check.sh [check]  report an alias move or local-root-ledger spend threshold
+  fm-jev-check.sh [check]  report an alias move or per-home resolver spend threshold
   fm-jev-check.sh arm      write and register state/jev-monitor.check.sh
   fm-jev-check.sh disarm   remove the check shim, trust binding, and records
 
@@ -141,14 +140,8 @@ check_alias() {
 }
 
 check_spend() {
-  local local_root ledger now flags alert_state previous finding
-  if ! command -v fm_firstmate_root_home >/dev/null 2>&1; then
-    # shellcheck source=bin/fm-wake-lib.sh
-    . "$SCRIPT_DIR/fm-wake-lib.sh"
-  fi
-  local_root=$(fm_firstmate_root_home "$FM_HOME") \
-    || { append_finding 'Jev spend check failed: local ledger root is unavailable'; return; }
-  ledger="$local_root/state/jev-usage.jsonl"
+  local ledger now flags alert_state previous finding
+  ledger="$FM_HOME/state/jev-usage.jsonl"
   [ -f "$ledger" ] && [ ! -L "$ledger" ] || return
   now=$(now_epoch)
   flags=$(jq -cser --argjson now "$now" --argjson price "$PRICE_PER_INPUT_TOKEN" '
@@ -185,10 +178,10 @@ check_spend() {
   finding=$(jq -r --argjson previous "$previous" '
     [
       (if .monthly.alert and $previous.monthly != {period: .monthly.period, alert: .monthly.alert}
-       then "local root ledger month-to-date \(.monthly.usd | . * 100 | floor / 100) USD reaches the 10 USD local threshold"
+       then "per-home resolver ledger month-to-date \(.monthly.usd | . * 100 | floor / 100) USD reaches the 10 USD local threshold"
        else empty end),
       (if .daily.alert and $previous.daily != {period: .daily.period, alert: .daily.alert}
-       then "local root ledger UTC calendar day \(.daily.usd | . * 100 | floor / 100) USD reaches the 1 USD daily threshold"
+       then "per-home resolver ledger UTC calendar day \(.daily.usd | . * 100 | floor / 100) USD reaches the 1 USD daily threshold"
        else empty end)
     ] | join("; ")' <<<"$flags") \
     || { append_finding 'Jev spend check failed: threshold state is malformed'; return; }
@@ -256,6 +249,10 @@ action_arm() {
 }
 
 action_disarm() {
+  [ -d "$STATE" ] && [ ! -L "$STATE" ] || {
+    printf 'fm-jev-check: refusing to disarm with unavailable state directory: %s\n' "$STATE" >&2
+    return 1
+  }
   FM_HOME="$FM_HOME" "$UNREGISTER_BIN" "$CHECK_ID" >/dev/null 2>&1 || true
   rm -f -- "$ALIAS_RECORD" "$SPEND_RECORD"
   printf 'disarmed: state/%s.check.sh\n' "$CHECK_ID"
