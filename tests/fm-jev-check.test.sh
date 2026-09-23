@@ -265,6 +265,7 @@ test_rearm_preserves_the_existing_registration_without_rewriting() {
   FM_HOME="$home" "$CHECK" arm >/dev/null || fail "could not create the existing registration fixture"
   shim_before=$(cat "$home/state/jev-monitor.check.sh")
   trust_before=$(cat "$home/state/jev-monitor.check-trust")
+  # shellcheck disable=SC2016
   printf '%s\n' '#!/usr/bin/env bash' 'printf called > "${FAKE_MKTEMP_CALL:?}"' 'exit 1' > "$fake/mktemp"
   chmod 0700 "$fake/mktemp"
 
@@ -288,6 +289,7 @@ test_post_replacement_registration_failure_removes_the_unregistered_shim() {
   FM_HOME="$home" "$CHECK" arm >/dev/null || fail "could not create the post-replacement fixture"
   mv "$home/state/jev-monitor.check-trust" "$home/state/jev-monitor.check-trust.saved"
   real_shasum=$(command -v shasum)
+  # shellcheck disable=SC2016
   printf '%s\n' \
     '#!/usr/bin/env bash' \
     'count=0' \
