@@ -68,7 +68,7 @@ It proves the clear, fixed-floor ambiguous with candidate evidence, escalate (ap
 `tests/fm-bootstrap.test.sh` proves bootstrap ignores resolver-only fields without the typed key, validates each malformed shape when the environment or home `.env` activates typed resolution, and prevents an environment-provided key from reaching child processes.
 
 `tests/fm-jev-check.test.sh` drives the public monitor interface with a fixture models endpoint and no TypeSafe network access.
-It proves alias baselining and one-time move alerts, complete listing and calendar-date validation, per-home UTC-period spend accounting, future-record exclusion, malformed-ledger refusal, period-aware deduplication, absent-key inertness, registered watcher arming, and symlink-safe disarming.
+It proves alias baselining and one-time move alerts, complete listing and calendar-date validation, per-home UTC-period spend accounting that includes valid metering from rejected answers, future-record exclusion, malformed-ledger refusal, period-aware deduplication, absent-key inertness, registered watcher arming, and symlink-safe disarming.
 
 ```console
 $ bash tests/fm-dispatch-resolve.test.sh | tail -1
