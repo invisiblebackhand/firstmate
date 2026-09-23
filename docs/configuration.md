@@ -543,10 +543,51 @@ The tool never replaces firstmate's judgment, `quota-array-dispatch`, the captai
 By accepted design, a `clear` result does not enforce catalog/authentication, reasoning-class, or completion-runway gates.
 Firstmate passes its profile line unless it states a reason to override, such as the brief's reasoning class or an eligible-unranked-candidate note; every non-clear result returns to the full existing intake.
 
-The resolver and bootstrap copy an environment-provided key into a non-exported private variable and unset `TYPESAFE_API_KEY` before launching child processes, so the secret is absent from child environments.
-The resolver sends the key to `curl` only as a header read from a file descriptor, never on argv, and nothing prints, logs, or writes it.
-The resolver fixes the endpoint at `https://api.typesafe.ai`, model at `jev-latest`, confidence floor at 0.6, and request timeout at 5 seconds; `TYPESAFE_API_KEY` is its only resolver-specific environment setting.
-The live rule-match evidence is recorded in [`verification/dispatch-resolve.md`](verification/dispatch-resolve.md).
+The resolver, monitor, and bootstrap copy an environment-provided key into a non-exported private variable and unset `TYPESAFE_API_KEY` before launching child processes, so the secret is absent from child environments.
+The resolver and monitor send the key to `curl` only as a header read from a file descriptor, never on argv, and nothing prints, logs, or writes it.
+The resolver fixes the endpoint at `https://api.typesafe.ai`, model at `jev-1.13.0`, confidence floor at 0.6, and request timeout at 5 seconds; `TYPESAFE_API_KEY` is its only resolver-specific environment setting.
+Once a readable brief determines the per-home ledger destination, every later opted-in resolver outcome with a valid destination appends one JSON line to that Firstmate home's gitignored `state/jev-usage.jsonl` with `at` (Unix epoch seconds), `task` (the task ID from the brief path's physical parent directory, or `unknown` when that label cannot be derived), `status`, nullable `reason` (`no_rules` when no dispatch rule exists), `rule`, `confidence`, the answering `model`, `input_tokens`, and `x-typesafe-request-id`; argument and unreadable-brief failures before that boundary remain unrecorded, while an unsafe or unwritable destination is refused without modification.
+Each home keeps a separate ledger containing only resolver calls made from that home; it is keyed by neither TypeSafe account nor API key and excludes every other Jev consumer.
+The resolver creates the ledger as a mode-0600 single-link regular file and refuses any existing destination that does not retain those properties.
+Failed or partial attempts use `status: "error"` and retain nulls for metadata the service did not return validly.
+The ledger never contains brief text or credentials.
+The live API and rule-match evidence, plus the offline resolver and monitor coverage, are recorded in [`verification/dispatch-resolve.md`](verification/dispatch-resolve.md).
+
+## Jev monitoring (bin/fm-jev-check.sh)
+
+`bin/fm-jev-check.sh check` is the one-line custom watcher check for the TypeSafe/Jev follow-up.
+It uses the same `TYPESAFE_API_KEY` opt-in as typed dispatch resolution and is inert when the key is absent.
+It makes the unmetered `GET /v1/models` request and reports a changed `jev-latest.release_date`, with the required reminder to replay the dispatch tests before changing a pinned model.
+The external Claude Code compact-adviser plugin has no model setting, so it stays on the moving `jev-latest` alias by default, and this alias-move alert covers it.
+It also sums valid input-token metering from that home's resolver ledger, including calls whose answers were later rejected conservatively, at the documented price of USD 0.042 per million input tokens and alerts when recorded local usage reaches USD 10 in the current UTC month or USD 1 in the current UTC calendar day.
+The spend alert covers only resolver calls recorded in this home's own ledger; it cannot see the compact-adviser plugin, which records no Jev spend, or any other home using the same key, so it is a floor on account spend rather than the account total.
+The TypeSafe console remains the account-wide authority for the USD 10 monthly threshold.
+The monitor records its last alias date and period-aware monthly and daily threshold state in gitignored `state/` files so an unchanged condition does not wake every polling cycle or suppress a new-period alert.
+
+Arm it only in a home that should poll it:
+
+```sh
+bin/fm-jev-check.sh arm
+```
+
+Arming writes and registers `state/jev-monitor.check.sh` through `bin/fm-check-register.sh`, so the existing watcher polls it on its normal cadence.
+`bin/fm-jev-check.sh disarm` removes that shim, its trust binding, and the monitor records.
+The shipped check is not armed by default or by this repository.
+
+## Jev consumer contract
+
+This section is the single owner of the standard contract for any Jev consumer.
+
+1. Opt in only when a key is present, and leave the caller's ordinary path unchanged when it is absent.
+2. Keep the key in process memory or a file-descriptor header, never in argv, URLs, or logs.
+3. Pin a versioned model where behavior feeds a tuned threshold, and record the answering model on every model call.
+4. Bound each request with a hard timeout of 2 seconds for interactive or hook paths and 5 seconds for command-line paths.
+5. Validate the complete response shape before use; for a Choice answer, that includes the offered options, probabilities, confidence, and non-negative usage fields.
+6. Treat every API, timeout, malformed-response, or contradictory-response failure as the conservative path, with at most one diagnostic line.
+7. Do not retry interactive or hook work inside a call, and limit batch or command-line retries to two 429 or 529 retries that honor `retry-after`.
+8. Append every metered result to a private durable usage ledger with no request contents or credentials, and refuse to accept the result if that append fails.
+9. Keep Jev advisory by default, and allow it to gate only toward the conservative outcome.
+10. Tune each threshold on that operation's labeled data with about a 0.1 margin, and record the model version used for that tuning.
 
 ## Toolchain
 
@@ -1171,7 +1212,7 @@ FMX_RELAY_URL=https://myfirstmate.io   # optional Relay endpoint override, mainl
 FMX_ENV_FILE=           # optional alternate .env file for direct Relay client invocations; bootstrap still checks $FM_HOME/.env
 FMX_DRY_RUN=            # truthy previews Relay replies and dismissals to state/x-outbox/ without posting or requiring a token
 FMX_X_REPLY_MAX_CHARS=280   # X reply per-message split budget; values below 50 clamp to 50
-TYPESAFE_API_KEY=       # typed dispatch resolution opt-in, from the environment or .env; absent means bin/fm-dispatch-resolve.sh is off (docs/configuration.md "Typed dispatch resolution")
+TYPESAFE_API_KEY=       # TypeSafe/Jev opt-in, from the environment or .env; absent leaves dispatch resolution off and Jev monitoring inert (docs/configuration.md "Typed dispatch resolution" and "Jev monitoring")
 FMX_DISCORD_REPLY_MAX_CHARS=1900   # Discord reply per-message split budget; values below 50 clamp to 50, values above 2000 reset to 1900
 FMX_X_THREAD_MAX=25     # maximum messages in one auto-split reply thread
 FMX_FOLLOWUP_MAX_AGE_SECS=604800   # local window for posting Relay completion follow-ups (7 days)

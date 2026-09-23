@@ -43,6 +43,12 @@
 #   escalate  -> the rule requires captain approval, no candidate is rankable, or a genuine tie
 #   error     -> API, network, response, or quota-axi failure; decide as today
 #   Every outcome exits 0 so an intake is never blocked by this tool.
+#   With a valid ledger destination, every opted-in resolution attempt appends
+#   one JSON object to this Firstmate home's state/jev-usage.jsonl. It records
+#   only resolver calls from this home, is keyed by neither TypeSafe account nor
+#   API key, and excludes other Jev consumers. TypeSafe's console is the
+#   account-wide USD 10/month authority; this ledger supports only local
+#   estimates and attribution alerts.
 #   Exit 2 only for a usage or configuration error (unreadable brief, an
 #   existing unreadable rules file, malformed rules, or missing jq), which is
 #   actionable, never selected around.
@@ -72,17 +78,26 @@ CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 . "$SCRIPT_DIR/fm-env-lib.sh"
 # shellcheck source=bin/fm-timing-lib.sh
 . "$SCRIPT_DIR/fm-timing-lib.sh"
+# shellcheck source=bin/fm-pr-lib.sh
+. "$SCRIPT_DIR/fm-pr-lib.sh"
 
 CONFIDENCE_FLOOR=0.6
-TS_MODEL=jev-latest
+TS_MODEL=jev-1.13.0
 TS_BASE=https://api.typesafe.ai
 TS_TIMEOUT=5
 DEFAULT_WHEN="No listed rule applies to this task."
 
-die() { printf 'error: %s\n' "$1" >&2; exit 2; }
-no_rules() {
-  printf 'dispatch-resolve:\n  status: escalate\n  reason: no rules to match\n'
-  exit 0
+die() {
+  local reason=$1
+  if [ "${LEDGER_READY:-0}" -eq 1 ]; then
+    LEDGER_STATUS=error
+    LEDGER_REASON=$reason
+    if ! append_ledger; then
+      reason="$reason; could not append state/jev-usage.jsonl"
+    fi
+  fi
+  printf 'error: %s\n' "$reason" >&2
+  exit 2
 }
 usage() {
   awk '
@@ -92,7 +107,67 @@ usage() {
   ' "$0"
 }
 
-BRIEF='' PROJECT='' RULES_PATH="$CONFIG/crew-dispatch.json" RULES=''
+append_ledger() {
+  local at device record ledger state result
+  [ "${LEDGER_WRITTEN:-0}" -eq 0 ] || return 0
+  fm_pr_task_id_valid "$TASK_LABEL" || return 1
+  result=${RESULT:-}
+  [ -n "$result" ] || result='{}'
+  state="$FM_HOME/state"
+  ledger="$state/jev-usage.jsonl"
+  mkdir -p "$state" || return 1
+  [ -d "$state" ] && [ ! -L "$state" ] || return 1
+  at=$(date +%s) || return 1
+  case "$at" in ''|*[!0-9]*) return 1 ;; esac
+  if command -v jq >/dev/null 2>&1; then
+    record=$(jq -cn --argjson result "$result" --arg task "$TASK_LABEL" --arg status "${LEDGER_STATUS:-error}" --arg reason "${LEDGER_REASON:-}" --arg request_id "${REQUEST_ID:-}" --argjson at "$at" '
+      {
+        at: $at,
+        task: $task,
+        status: $status,
+        reason: (if $reason == "" then null else $reason end),
+        rule: ($result.rule // null),
+        confidence: ($result.confidence // null),
+        model: ($result.model // null),
+        input_tokens: ($result.tokens.input_tokens // null),
+        "x-typesafe-request-id": (if $request_id == "" then null else $request_id end)
+      }') || return 1
+  elif [ "${LEDGER_STATUS:-}" = error ] && [ "${LEDGER_REASON:-}" = "jq required" ] && [ "$result" = '{}' ]; then
+    printf -v record '{"at":%s,"task":"%s","status":"error","reason":"jq required","rule":null,"confidence":null,"model":null,"input_tokens":null,"x-typesafe-request-id":null}' "$at" "$TASK_LABEL"
+  else
+    return 1
+  fi
+  device=$(fm_pr_file_device "$state") || return 1
+  if [ ! -e "$ledger" ] && [ ! -L "$ledger" ]; then
+    (umask 077; set -C; : > "$ledger") 2>/dev/null || :
+  fi
+  fm_pr_private_file_valid "$ledger" 600 "$device" || return 1
+  printf '%s\n' "$record" >> "$ledger" || return 1
+  LEDGER_WRITTEN=1
+}
+
+emit_error() {
+  local reason=$1
+  LEDGER_STATUS=error
+  LEDGER_REASON=$reason
+  if ! append_ledger; then
+    reason="$reason; could not append state/jev-usage.jsonl"
+  fi
+  echo "dispatch-resolve: error ($reason)" >&2
+  printf 'dispatch-resolve:\n  status: error\n  reason: %s\n' "$reason"
+  exit 0
+}
+
+no_rules() {
+  LEDGER_STATUS=escalate
+  LEDGER_REASON=no_rules
+  append_ledger || emit_error "could not append state/jev-usage.jsonl"
+  printf 'dispatch-resolve:\n  status: escalate\n  reason: no rules to match\n'
+  exit 0
+}
+
+BRIEF='' PROJECT='' TASK_LABEL='' RULES_PATH="$CONFIG/crew-dispatch.json" RULES=''
+RESULT='{}' REQUEST_ID='' LEDGER_READY=0 LEDGER_WRITTEN=0 LEDGER_STATUS=error LEDGER_REASON=''
 while [ $# -gt 0 ]; do
   case "$1" in
     --project) [ $# -ge 2 ] || die "--project needs a value"; PROJECT=$2; shift 2 ;;
@@ -114,9 +189,21 @@ fi
 # ---- inputs --------------------------------------------------------------------
 [ -n "$BRIEF" ] || die "brief file required (see --help)"
 [ -r "$BRIEF" ] || die "brief file not readable: $BRIEF"
+case "$BRIEF" in
+  */*) BRIEF_PARENT=${BRIEF%/*}; [ -n "$BRIEF_PARENT" ] || BRIEF_PARENT=/ ;;
+  *) BRIEF_PARENT=. ;;
+esac
+BRIEF_PARENT=$(CDPATH='' cd -- "$BRIEF_PARENT" 2>/dev/null && pwd -P) || BRIEF_PARENT=
+TASK_LABEL=${BRIEF_PARENT##*/}
+if ! fm_pr_task_id_valid "$TASK_LABEL"; then
+  TASK_LABEL=unknown
+  LEDGER_READY=1
+  emit_error "could not derive task label from brief path"
+fi
+LEDGER_READY=1
+command -v jq >/dev/null 2>&1 || die "jq required"
 [ -e "$RULES_PATH" ] || [ -L "$RULES_PATH" ] || no_rules
 [ -r "$RULES_PATH" ] || die "rules file not readable: $RULES_PATH"
-command -v jq >/dev/null 2>&1 || die "jq required"
 RULES=$(mktemp) || die "mktemp failed"
 trap 'rm -f "$RULES"' EXIT
 cp "$RULES_PATH" "$RULES" || die "could not snapshot rules file: $RULES_PATH"
@@ -209,20 +296,14 @@ done < <(jq -r '
 
 RULE_COUNT=$(jq -r '(.rules // []) | length' "$RULES")
 
-emit_error() {
-  local reason=$1
-  echo "dispatch-resolve: error ($reason)" >&2
-  printf 'dispatch-resolve:\n  status: error\n  reason: %s\n' "$reason"
-  exit 0
-}
-
 if [ "$RULE_COUNT" -eq 0 ]; then
   no_rules
 fi
 
 RESP_FILE=$(mktemp) || die "mktemp failed"
 QUOTA=$(mktemp) || { rm -f "$RESP_FILE"; die "mktemp failed"; }
-trap 'rm -f "$RULES" "$RESP_FILE" "$QUOTA"' EXIT
+HEADERS=$(mktemp) || { rm -f "$RULES" "$RESP_FILE" "$QUOTA"; die "mktemp failed"; }
+trap 'rm -f "$RULES" "$RESP_FILE" "$QUOTA" "$HEADERS"' EXIT
 LAT_MS=null
 command -v curl >/dev/null 2>&1 || emit_error "curl not installed"
   REQUEST=$(jq -n --rawfile brief "$BRIEF" --arg project "$PROJECT" --arg model "$TS_MODEL" \
@@ -241,27 +322,59 @@ command -v curl >/dev/null 2>&1 || emit_error "curl not installed"
       }
     }')
   T0=$(fm_timing_now_ms)
-  HTTP=$(printf '%s' "$REQUEST" | curl -sS --max-time "$TS_TIMEOUT" -o "$RESP_FILE" -w '%{http_code}' \
+  HTTP=$(printf '%s' "$REQUEST" | curl -sS --max-time "$TS_TIMEOUT" -D "$HEADERS" -o "$RESP_FILE" -w '%{http_code}' \
     -X POST "$TS_BASE/v1/systemone" -H 'Content-Type: application/json' \
     -H @/dev/fd/3 3< <(printf 'Authorization: Bearer %s\n' "$TYPESAFE_API_KEY_PRIVATE") \
     --data-binary @- 2>/dev/null) || HTTP=000
   T1=$(fm_timing_now_ms)
   LAT_MS=$(( T1 - T0 ))
+  REQUEST_ID=$(awk 'tolower($1) == "x-typesafe-request-id:" { sub(/^[^:]*:[[:space:]]*/, ""); sub(/\r$/, ""); print }' "$HEADERS")
   [ "$HTTP" = 200 ] || emit_error "http $HTTP after ${LAT_MS} ms: $(head -c 200 "$RESP_FILE" 2>/dev/null | tr '\n' ' ')"
-jq -e --slurpfile rules "$RULES" '
+if response_metadata=$(jq -c '
+    {
+      status: "error",
+      model: (if type == "object" and (.model | type) == "string" then .model else null end),
+      tokens: {
+        input_tokens: (if type == "object" and (.usage | type) == "object"
+          and (.usage.input_tokens | type) == "number"
+          and (.usage.input_tokens | floor) == .usage.input_tokens
+          and .usage.input_tokens >= 0
+          then .usage.input_tokens else null end)
+      }
+    }' "$RESP_FILE" 2>/dev/null); then
+  RESULT=$response_metadata
+fi
+case "$REQUEST_ID" in
+  ''|*$'\n'*|*$'\r'*)
+    REQUEST_ID=
+    emit_error "response has no single x-typesafe-request-id header"
+    ;;
+esac
+jq -e --arg expected_model "$TS_MODEL" --slurpfile rules "$RULES" '
     (($rules[0].rules | to_entries | map("rule_" + ((.key + 1) | tostring))) + ["default"] | sort) as $choices |
-    (.answers.rule.choice | type) == "string" and
+    (.answers.rule.choice) as $choice |
+    (.model == $expected_model) and
+    (.answers.rule.type == "choice") and
+    ($choice | type) == "string" and
+    (($choices | index($choice)) != null) and
     (.answers.rule.confidence | type) == "number" and
     .answers.rule.confidence >= 0 and .answers.rule.confidence <= 1 and
     (.answers.rule.probabilities | type) == "object" and
     ((.answers.rule.probabilities | keys | sort) == $choices) and
     all(.answers.rule.probabilities[]; type == "number" and . >= 0 and . <= 1) and
     ((.answers.rule.probabilities | [.[]] | add) as $total | $total >= 0.99 and $total <= 1.01) and
-    ((has("usage") | not) or
-      ((.usage | type) == "object" and
-       (.usage.input_tokens | type) == "number" and
-       (.usage.output_tokens | type) == "number"))' \
+    (.usage | type) == "object" and
+    (.usage.input_tokens | type) == "number" and (.usage.input_tokens | floor) == .usage.input_tokens and .usage.input_tokens >= 0 and
+    (.usage.output_tokens | type) == "number" and (.usage.output_tokens | floor) == .usage.output_tokens and .usage.output_tokens >= 0' \
   "$RESP_FILE" >/dev/null 2>&1 || emit_error "response is not a rule Choice answer"
+
+RESULT=$(jq -c '{
+  status: "error",
+  rule: .answers.rule.choice,
+  confidence: .answers.rule.confidence,
+  model,
+  tokens: .usage
+}' "$RESP_FILE") || emit_error "response metadata could not be recorded"
 
 # ---- quota evidence: one quota-axi --json snapshot -----------------------------
 command -v quota-axi >/dev/null 2>&1 || emit_error "quota-axi not installed"
@@ -342,19 +455,13 @@ RESULT=$(jq -n --arg floor "$CONFIDENCE_FLOOR" --argjson lat "$LAT_MS" --arg non
       end
     end;
   ($a.choice) as $choice |
-  (if ($choice | test("^rule_[1-9][0-9]*$"))
-   then ($choice | ltrimstr("rule_") | tonumber)
-   else null end) as $rule_number |
   (if $choice == "default" then null
-   elif $rule_number != null and $rule_number <= (($cfg.rules // []) | length) then $cfg.rules[$rule_number - 1]
-   else null end) as $rule |
+   else $cfg.rules[(($choice | ltrimstr("rule_")) | tonumber) - 1] end) as $rule |
   (if $rule == null then "none" else floor_state($rule.floor; $rule.floor.provider; "") end) as $rule_floor_state |
-  (if $choice != "default" and $rule == null then []
-   elif $rule == null then profiles($cfg.default // null)
+  (if $rule == null then profiles($cfg.default // null)
    else profiles($rule.use)
    end) as $answer_use |
-  (if $choice != "default" and $rule == null then {invalid: "rule \($choice) is not in the rules file"}
-   elif $rule == null then {source: "default", use: profiles($cfg.default // null), note: "no rule matched"}
+  (if $rule == null then {source: "default", use: profiles($cfg.default // null), note: "no rule matched"}
    elif ($rule.approval // "") == "captain" then {source: $choice, escalate: "rule requires the captain'"'"'s explicit approval before dispatch"}
    elif $rule_floor_state == "unknown" then {source: $choice, escalate: "rule \($choice) floor \($rule.floor.provider)/\($rule.floor.scope) is unverifiable"}
    elif $rule_floor_state == "below"
@@ -366,8 +473,7 @@ RESULT=$(jq -n --arg floor "$CONFIDENCE_FLOOR" --argjson lat "$LAT_MS" --arg non
     rule_when: (if $rule == null then $none_criterion else $rule.when end | .[0:60]),
     confidence: $a.confidence, probabilities: $a.probabilities
   } as $ev |
-  if $sel.invalid then $ev + {status: "error", reason: $sel.invalid}
-  elif $a.confidence < ($floor | tonumber) then
+  if $a.confidence < ($floor | tonumber) then
     $ev + {status: "ambiguous", reason: "confidence \($a.confidence) below floor \($floor)", candidates: ($answer_use | map(evaluate(.)))}
   elif $sel.escalate then
     $ev + {status: "escalate", reason: $sel.escalate, candidates: ($answer_use | map(evaluate(.)))}
@@ -388,6 +494,7 @@ RESULT=$(jq -n --arg floor "$CONFIDENCE_FLOOR" --argjson lat "$LAT_MS" --arg non
       end
     end
   end') || emit_error "resolution failed"
+LEDGER_STATUS=$(jq -r '.status' <<<"$RESULT") || emit_error "resolution status could not be recorded"
 
 TEXT=$(jq -r '
   def flat: tostring | gsub("[\t\r\n]"; " ");
@@ -409,5 +516,6 @@ TEXT=$(jq -r '
   (if .chosen then "  profile: --harness \(.chosen.profile.harness | shell_arg)"
       + (if .chosen.profile.model then " --model \(.chosen.profile.model | shell_arg)" else "" end)
       + (if .chosen.profile.effort then " --effort \(.chosen.profile.effort | shell_arg)" else "" end) else empty end)' <<<"$RESULT") || emit_error "output rendering failed"
+append_ledger || emit_error "could not append state/jev-usage.jsonl"
 printf '%s\n' "$TEXT"
 exit 0

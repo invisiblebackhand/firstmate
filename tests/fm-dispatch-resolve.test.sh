@@ -2,8 +2,9 @@
 # Behavior tests for bin/fm-dispatch-resolve.sh.
 #
 # Drives the public argv and environment interface with a fake curl on PATH
-# that records argv, the request body it read from stdin, and the header it
-# read from file descriptor 3, and answers with a canned typesafe.ai response.
+# that records argv, the request body it read from stdin, the response headers,
+# and the header it read from file descriptor 3, then answers with a canned
+# typesafe.ai response.
 # A fake quota-axi serves the selected schema-5 fixture. No case touches the
 # network, and the absent-key case proves the tool makes no call
 # at all.
@@ -11,21 +12,28 @@ set -u
 
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+# shellcheck source=bin/fm-pr-lib.sh
+. "$ROOT/bin/fm-pr-lib.sh"
 
 TOOL="$ROOT/bin/fm-dispatch-resolve.sh"
 TMP_ROOT=$(fm_test_tmproot fm-dispatch-resolve)
 HOME_DIR="$TMP_ROOT/home"
 FAKEBIN=$(fm_fakebin "$TMP_ROOT")
 NO_CURL_BIN="$TMP_ROOT/no-curl-bin"
+NO_JQ_BIN="$TMP_ROOT/no-jq-bin"
 LOG="$TMP_ROOT/log"
-BRIEF="$TMP_ROOT/brief.md"
+BRIEF_DIR="$TMP_ROOT/data/pager-task"
+BRIEF="$BRIEF_DIR/brief.md"
 BASE_RULES="$TMP_ROOT/rules.json"
 RULES="$HOME_DIR/config/crew-dispatch.json"
 QUOTA="$TMP_ROOT/quota.json"
 BASE_PATH=$PATH
-mkdir -p "$HOME_DIR/config" "$LOG" "$NO_CURL_BIN"
-for command_name in bash chmod cp dirname jq mktemp rm; do
+mkdir -p "$HOME_DIR/config" "$LOG" "$NO_CURL_BIN" "$NO_JQ_BIN" "$BRIEF_DIR"
+for command_name in bash chmod cp date dirname jq mkdir mktemp rm stat uname; do
   ln -s "$(command -v "$command_name")" "$NO_CURL_BIN/$command_name"
+done
+for command_name in bash chmod cp date dirname mkdir mktemp rm stat uname; do
+  ln -s "$(command -v "$command_name")" "$NO_JQ_BIN/$command_name"
 done
 
 cat > "$BRIEF" <<'MD'
@@ -107,8 +115,8 @@ JSON
 
 cat > "$FAKEBIN/curl" <<'SH'
 #!/usr/bin/env bash
-# Fake curl: records argv (minus the -o target), the stdin body, and the header
-# read from fd 3, then answers with FAKE_CURL_RESPONSE and FAKE_CURL_HTTP.
+# Fake curl: records argv (minus output targets), the stdin body, response
+# headers, and the header read from fd 3, then answers with canned output.
 set -u
 if [ -n "${TYPESAFE_API_KEY+x}" ] || [ -n "${TYPESAFE_API_KEY_PRIVATE+x}" ]; then
   printf 'curl:secret-present\n' >> "${CHILD_ENV_LOG:?}"
@@ -119,6 +127,14 @@ out=''
 while [ $# -gt 0 ]; do
   case "$1" in
     -o) out=$2; shift 2 ;;
+    -D)
+      if [ "${FAKE_CURL_REQUEST_ID:-req_fixture_123}" != absent ]; then
+        printf '%s\n' "x-typesafe-request-id: ${FAKE_CURL_REQUEST_ID:-req_fixture_123}" > "$2"
+      else
+        : > "$2"
+      fi
+      shift 2
+      ;;
     *) printf '%s\n' "$1" >> "${FAKE_CURL_LOG:?}/argv"; shift ;;
   esac
 done
@@ -146,6 +162,17 @@ fi
 printf '%s\n' "$*" >> "${QUOTA_AXI_CALLS:?}"
 [ "${FAKE_QUOTA_FAIL:-0}" = 1 ] && exit 1
 [ "${1:-}" = --json ] || exit 2
+if [ -n "${FAKE_QUOTA_BARRIER_DIR:-}" ]; then
+  : > "$FAKE_QUOTA_BARRIER_DIR/$$"
+  barrier_waits=0
+  while [ "$barrier_waits" -lt 500 ]; do
+    set -- "$FAKE_QUOTA_BARRIER_DIR"/*
+    [ "$#" -ge "${FAKE_QUOTA_BARRIER_COUNT:?}" ] && break
+    sleep 0.01
+    barrier_waits=$((barrier_waits + 1))
+  done
+  [ "$#" -ge "$FAKE_QUOTA_BARRIER_COUNT" ] || exit 1
+fi
 cat "${QUOTA_AXI_FIXTURE:?}"
 SH
 chmod +x "$FAKEBIN/quota-axi"
@@ -163,7 +190,17 @@ reset_log() {
 run() {
   local __exit=$1 __out=$2 __err=$3 _out _code
   shift 3
-  _out=$(PATH="$FAKEBIN:$BASE_PATH" FM_HOME="$HOME_DIR" "$TOOL" "$@" 2> "$TMP_ROOT/stderr")
+  _out=$(PATH="$FAKEBIN:$BASE_PATH" FM_ROOT_OVERRIDE="$HOME_DIR" FM_HOME="$HOME_DIR" "$TOOL" "$@" 2> "$TMP_ROOT/stderr")
+  _code=$?
+  printf -v "$__exit" '%s' "$_code"
+  printf -v "$__out" '%s' "$_out"
+  printf -v "$__err" '%s' "$(cat "$TMP_ROOT/stderr")"
+}
+
+run_from() {
+  local cwd=$1 __exit=$2 __out=$3 __err=$4 _out _code
+  shift 4
+  _out=$(cd "$cwd" && PATH="$FAKEBIN:$BASE_PATH" FM_ROOT_OVERRIDE="$HOME_DIR" FM_HOME="$HOME_DIR" "$TOOL" "$@" 2> "$TMP_ROOT/stderr")
   _code=$?
   printf -v "$__exit" '%s' "$_code"
   printf -v "$__out" '%s' "$_out"
@@ -173,7 +210,17 @@ run() {
 run_without_curl() {
   local __exit=$1 __out=$2 __err=$3 _out _code
   shift 3
-  _out=$(PATH="$NO_CURL_BIN" FM_HOME="$HOME_DIR" TYPESAFE_API_KEY="$KEY" "$TOOL" "$@" 2> "$TMP_ROOT/stderr")
+  _out=$(PATH="$NO_CURL_BIN" FM_ROOT_OVERRIDE="$HOME_DIR" FM_HOME="$HOME_DIR" TYPESAFE_API_KEY="$KEY" "$TOOL" "$@" 2> "$TMP_ROOT/stderr")
+  _code=$?
+  printf -v "$__exit" '%s' "$_code"
+  printf -v "$__out" '%s' "$_out"
+  printf -v "$__err" '%s' "$(cat "$TMP_ROOT/stderr")"
+}
+
+run_without_jq() {
+  local __exit=$1 __out=$2 __err=$3 _out _code
+  shift 3
+  _out=$(PATH="$NO_JQ_BIN" FM_ROOT_OVERRIDE="$HOME_DIR" FM_HOME="$HOME_DIR" TYPESAFE_API_KEY="$KEY" "$TOOL" "$@" 2> "$TMP_ROOT/stderr")
   _code=$?
   printf -v "$__exit" '%s' "$_code"
   printf -v "$__out" '%s' "$_out"
@@ -215,6 +262,7 @@ pass "TYPESAFE_API_KEY= in .env activates the tool; environment and config overr
 
 # --- clear: request shape, secret handling, argmax --------------------------
 reset_log
+rm -f "$HOME_DIR/state/jev-usage.jsonl"
 write_response "$RESPONSE" rule_4 0.9
 TYPESAFE_API_KEY=$KEY run code out err "$BRIEF" --project pager
 expect_code 0 "$code" "clear exits 0"
@@ -234,7 +282,7 @@ assert_contains "$argv" '@/dev/fd/3' "the header is read from a file descriptor"
 assert_equals "Authorization: Bearer $KEY" "$(cat "$LOG/header")" "curl receives the bearer header on fd 3"
 assert_equals $'curl:clean\nquota-axi:clean' "$(cat "$LOG/child-env")" "the API key is absent from every child environment"
 body=$(cat "$LOG/body")
-assert_equals 'jev-latest' "$(jq -r .model <<<"$body")" "default model is jev-latest"
+assert_equals 'jev-1.13.0' "$(jq -r .model <<<"$body")" "default model is pinned to the verified Jev release"
 assert_equals 'pager' "$(jq -r .state.task.project <<<"$body")" "project rides in the state"
 assert_contains "$(jq -r .state.task.brief <<<"$body")" 'off-by-one in the pager' "the whole brief rides in the state"
 assert_equals '["rule"]' "$(jq -c '.questions | keys' <<<"$body")" "only the rule Choice is asked"
@@ -244,7 +292,108 @@ assert_equals 'A simple bug fix with a stated root cause.' "$(jq -r '.questions.
 assert_not_contains "$body" 'SECRET-WHY-TEXT' "why text never leaves the machine"
 assert_not_contains "$body" 'spendPriority' "quota never leaves the machine"
 assert_not_contains "$body" 'cursor-grok' "use profiles never leave the machine"
+ledger="$HOME_DIR/state/jev-usage.jsonl"
+assert_present "$ledger" "a resolved call appends the Jev usage ledger"
+[ ! -L "$ledger" ] || fail "a resolved call created a symlinked Jev usage ledger"
+assert_equals '600' "$(fm_pr_file_mode "$ledger")" "a resolved call creates a private Jev usage ledger"
+assert_equals '1' "$(fm_pr_file_link_count "$ledger")" "a resolved call creates a single-link Jev usage ledger"
+assert_equals '1' "$(wc -l < "$ledger" | tr -d '[:space:]')" "one resolver call produces one ledger line"
+assert_equals 'pager-task' "$(jq -r '.task' "$ledger")" "ledger stores the brief parent task ID"
+assert_equals 'clear' "$(jq -r '.status' "$ledger")" "ledger stores the resolved status"
+assert_equals 'rule_4' "$(jq -r '.rule' "$ledger")" "ledger stores the selected rule"
+assert_equals '0.9' "$(jq -r '.confidence' "$ledger")" "ledger stores the confidence"
+assert_equals 'jev-1.13.0' "$(jq -r '.model' "$ledger")" "ledger stores the model that answered"
+assert_equals '812' "$(jq -r '.input_tokens' "$ledger")" "ledger stores input token usage"
+assert_equals 'req_fixture_123' "$(jq -r '."x-typesafe-request-id"' "$ledger")" "ledger stores the request id"
+assert_not_contains "$(cat "$ledger")" 'off-by-one in the pager' "ledger never stores brief text"
 pass "clear: one rule Choice request, key on the fd header only, spendPriority argmax over every candidate"
+
+NO_PROJECT_BRIEF="$TMP_ROOT/data/no-project-task/brief.md"
+mkdir -p "${NO_PROJECT_BRIEF%/*}"
+cp "$BRIEF" "$NO_PROJECT_BRIEF"
+rm -f "$HOME_DIR/state/jev-usage.jsonl"
+reset_log
+write_response "$RESPONSE" rule_4 0.9
+TYPESAFE_API_KEY=$KEY run code out err "$NO_PROJECT_BRIEF"
+expect_code 0 "$code" "no-project resolver exits"
+assert_contains "$out" '  status: clear' "omitting --project changed the resolver outcome"
+assert_equals '' "$(jq -r .state.task.project "$LOG/body")" "omitting --project did not leave project optional"
+assert_equals 'no-project-task' "$(jq -r '.task' "$HOME_DIR/state/jev-usage.jsonl")" "no-project ledger omitted the brief parent task ID"
+assert_equals 'clear' "$(jq -r '.status' "$HOME_DIR/state/jev-usage.jsonl")" "no-project ledger did not retain the outcome"
+pass "a resolver call without --project records its brief parent task ID"
+
+PARENT_HOME="$TMP_ROOT/parent-home"
+mkdir -p "$PARENT_HOME/state"
+rm -f "$HOME_DIR/state/jev-usage.jsonl"
+printf 'schema=fm-secondmate-parent.v1\nroute=local\nparent_home=%s\n' "$PARENT_HOME" > "$HOME_DIR/.fm-secondmate-parent"
+reset_log
+write_response "$RESPONSE" rule_4 0.9
+TYPESAFE_API_KEY=$KEY run code out err "$BRIEF" --project secondmate-task
+rm -f "$HOME_DIR/.fm-secondmate-parent"
+assert_present "$HOME_DIR/state/jev-usage.jsonl" "a local secondmate writes its own resolver ledger"
+assert_absent "$PARENT_HOME/state/jev-usage.jsonl" "a local secondmate wrote its parent's resolver ledger"
+assert_equals 'pager-task' "$(jq -r '.task' "$HOME_DIR/state/jev-usage.jsonl")" "the per-home record retains its brief parent task ID"
+pass "local-secondmate resolver calls stay in their own home ledger"
+
+# --- concurrent first writes preserve every record --------------------------
+rm -f "$HOME_DIR/state/jev-usage.jsonl"
+FIRST_WRITE_BARRIER="$TMP_ROOT/first-write-barrier"
+mkdir -p "$FIRST_WRITE_BARRIER"
+first_write_pids=()
+for first_write_id in 1 2 3 4; do
+  first_write_brief="$TMP_ROOT/data/first-write-$first_write_id/brief.md"
+  mkdir -p "${first_write_brief%/*}"
+  cp "$BRIEF" "$first_write_brief"
+  PATH="$FAKEBIN:$BASE_PATH" FM_ROOT_OVERRIDE="$HOME_DIR" FM_HOME="$HOME_DIR" TYPESAFE_API_KEY="$KEY" \
+    FAKE_QUOTA_BARRIER_DIR="$FIRST_WRITE_BARRIER" FAKE_QUOTA_BARRIER_COUNT=4 \
+    "$TOOL" "$first_write_brief" --project "project-$first_write_id" \
+    > "$TMP_ROOT/first-write-$first_write_id.out" 2> "$TMP_ROOT/first-write-$first_write_id.err" &
+  first_write_pids+=("$!")
+done
+first_write_status=0
+for first_write_pid in "${first_write_pids[@]}"; do
+  wait "$first_write_pid" || first_write_status=1
+done
+expect_code 0 "$first_write_status" "concurrent first-write resolver exits"
+assert_equals '4' "$(wc -l < "$HOME_DIR/state/jev-usage.jsonl" | tr -d '[:space:]')" "concurrent first writes lost a ledger record"
+assert_equals '4' "$(jq -s '[.[].task] | unique | length' "$HOME_DIR/state/jev-usage.jsonl")" "concurrent first writes duplicated a task record"
+pass "concurrent first writes preserve one ledger record per resolver call"
+
+# --- ledger destination must remain private and single-link ------------------
+ledger="$HOME_DIR/state/jev-usage.jsonl"
+printf '%s\n' 'mode-sentinel' > "$ledger"
+chmod 0644 "$ledger"
+reset_log
+write_response "$RESPONSE" rule_4 0.9
+TYPESAFE_API_KEY=$KEY run code out err "$BRIEF" --project insecure-mode
+assert_contains "$out" '  status: error' "a permissive ledger mode was not refused"
+assert_contains "$out" 'could not append state/jev-usage.jsonl' "a permissive ledger refusal was not reported"
+assert_equals 'mode-sentinel' "$(cat "$ledger")" "a permissive ledger was modified"
+assert_equals '644' "$(fm_pr_file_mode "$ledger")" "a permissive ledger was silently chmodded"
+
+rm -f "$ledger"
+SYMLINK_TARGET="$TMP_ROOT/jev-usage-symlink-target"
+printf '%s\n' 'symlink-sentinel' > "$SYMLINK_TARGET"
+chmod 0600 "$SYMLINK_TARGET"
+ln -s "$SYMLINK_TARGET" "$ledger"
+reset_log
+TYPESAFE_API_KEY=$KEY run code out err "$BRIEF" --project symlink-ledger
+assert_contains "$out" '  status: error' "a symlinked ledger was not refused"
+assert_equals 'symlink-sentinel' "$(cat "$SYMLINK_TARGET")" "a symlinked ledger target was modified"
+[ -L "$ledger" ] || fail "a refused symlinked ledger was replaced"
+
+rm -f "$ledger"
+HARDLINK_TARGET="$TMP_ROOT/jev-usage-hardlink-target"
+printf '%s\n' 'hardlink-sentinel' > "$HARDLINK_TARGET"
+chmod 0600 "$HARDLINK_TARGET"
+ln "$HARDLINK_TARGET" "$ledger"
+reset_log
+TYPESAFE_API_KEY=$KEY run code out err "$BRIEF" --project hardlink-ledger
+assert_contains "$out" '  status: error' "a multiply linked ledger was not refused"
+assert_equals 'hardlink-sentinel' "$(cat "$HARDLINK_TARGET")" "a multiply linked ledger was modified"
+assert_equals '2' "$(fm_pr_file_link_count "$ledger")" "a refused multiply linked ledger changed identity"
+rm -f "$ledger" "$SYMLINK_TARGET" "$HARDLINK_TARGET"
+pass "resolver ledgers require private single-link regular destinations"
 
 # --- rules are snapshotted and line output is injection-safe -------------------
 MUTATED_RULES="$TMP_ROOT/mutated-rules.json"
@@ -274,6 +423,26 @@ pass "rules snapshots and shell quoting preserve the profile protocol"
 
 # --- no rules return control to the existing intake ----------------------------
 rm -f "$RULES"
+RELATIVE_BRIEF_DIR="$TMP_ROOT/data/relative-task"
+mkdir -p "$RELATIVE_BRIEF_DIR"
+cp "$BRIEF" "$RELATIVE_BRIEF_DIR/brief.md"
+for brief_spelling in brief.md ./brief.md; do
+  rm -f "$HOME_DIR/state/jev-usage.jsonl"
+  reset_log
+  TYPESAFE_API_KEY=$KEY run_from "$RELATIVE_BRIEF_DIR" code out err "$brief_spelling"
+  expect_code 0 "$code" "relative brief path exits 0: $brief_spelling"
+  assert_contains "$out" '  status: escalate' "relative brief path did not reach no-rules intake: $brief_spelling"
+  assert_contains "$out" '  reason: no rules to match' "relative brief path lost the no-rules reason: $brief_spelling"
+  assert_absent "$LOG/argv" "relative brief path called curl: $brief_spelling"
+  assert_absent "$LOG/quota-axi.calls" "relative brief path read quota: $brief_spelling"
+  assert_equals '1' "$(wc -l < "$HOME_DIR/state/jev-usage.jsonl" | tr -d '[:space:]')" "relative brief path did not record exactly one outcome: $brief_spelling"
+  assert_equals 'relative-task' "$(jq -r '.task' "$HOME_DIR/state/jev-usage.jsonl")" "relative brief path derived the wrong task ID: $brief_spelling"
+  assert_equals 'escalate' "$(jq -r '.status' "$HOME_DIR/state/jev-usage.jsonl")" "relative brief path did not record escalation: $brief_spelling"
+  assert_equals 'no_rules' "$(jq -r '.reason' "$HOME_DIR/state/jev-usage.jsonl")" "relative brief path did not record the no-rules reason: $brief_spelling"
+done
+pass "bare and dot-relative brief paths derive their physical parent task ID"
+
+rm -f "$HOME_DIR/state/jev-usage.jsonl"
 reset_log
 TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
 expect_code 0 "$code" "absent rules file exits 0"
@@ -282,6 +451,11 @@ assert_contains "$out" '  reason: no rules to match' "absent rules file returns 
 assert_not_contains "$out" '  profile:' "absent rules file emits no profile"
 assert_absent "$LOG/argv" "absent rules file never calls curl"
 assert_absent "$LOG/quota-axi.calls" "absent rules file never reads quota"
+assert_equals '1' "$(wc -l < "$HOME_DIR/state/jev-usage.jsonl" | tr -d '[:space:]')" "absent rules file did not record exactly one resolver outcome"
+assert_equals 'pager-task' "$(jq -r '.task' "$HOME_DIR/state/jev-usage.jsonl")" "absent rules record omitted the brief parent task ID"
+assert_equals 'escalate' "$(jq -r '.status' "$HOME_DIR/state/jev-usage.jsonl")" "absent rules record omitted the escalate outcome"
+assert_equals 'no_rules' "$(jq -r '.reason' "$HOME_DIR/state/jev-usage.jsonl")" "absent rules record omitted the no-rules reason"
+assert_equals '[null,null,null,null,null]' "$(jq -c '[.rule,.confidence,.model,.input_tokens,."x-typesafe-request-id"]' "$HOME_DIR/state/jev-usage.jsonl")" "absent rules record invented response metadata"
 
 DEFAULT_ONLY="$TMP_ROOT/default-only.json"
 EMPTY_RULES="$TMP_ROOT/empty-rules.json"
@@ -289,6 +463,7 @@ printf '%s\n' '{"default":[{"harness":"claude","model":"opus"},{"harness":"curso
 printf '%s\n' '{"rules":[],"default":[{"harness":"claude","model":"opus"},{"harness":"cursor","model":"cursor-grok-4.6-high"}]}' > "$EMPTY_RULES"
 for direct_rules in "$DEFAULT_ONLY" "$EMPTY_RULES"; do
   cp "$direct_rules" "$RULES"
+  rm -f "$HOME_DIR/state/jev-usage.jsonl"
   reset_log
   TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
   expect_code 0 "$code" "no-rule resolution exits 0: $direct_rules"
@@ -297,6 +472,11 @@ for direct_rules in "$DEFAULT_ONLY" "$EMPTY_RULES"; do
   assert_not_contains "$out" '  profile:' "no-rule resolution emits no profile: $direct_rules"
   assert_absent "$LOG/argv" "no-rule resolution never calls curl: $direct_rules"
   assert_absent "$LOG/quota-axi.calls" "no-rule resolution never reads quota: $direct_rules"
+  assert_equals '1' "$(wc -l < "$HOME_DIR/state/jev-usage.jsonl" | tr -d '[:space:]')" "no-rule resolution did not record exactly one outcome: $direct_rules"
+  assert_equals 'pager-task' "$(jq -r '.task' "$HOME_DIR/state/jev-usage.jsonl")" "no-rule record omitted the brief parent task ID: $direct_rules"
+  assert_equals 'escalate' "$(jq -r '.status' "$HOME_DIR/state/jev-usage.jsonl")" "no-rule record omitted the escalate outcome: $direct_rules"
+  assert_equals 'no_rules' "$(jq -r '.reason' "$HOME_DIR/state/jev-usage.jsonl")" "no-rule record omitted the no-rules reason: $direct_rules"
+  assert_equals '[null,null,null,null,null]' "$(jq -c '[.rule,.confidence,.model,.input_tokens,."x-typesafe-request-id"]' "$HOME_DIR/state/jev-usage.jsonl")" "no-rule record invented response metadata: $direct_rules"
 done
 
 AGY_RULE="$TMP_ROOT/agy-rule.json"
@@ -642,36 +822,97 @@ TYPESAFE_API_KEY=$KEY FAKE_QUOTA_FAIL=1 run code out err "$BRIEF"
 expect_code 0 "$code" "quota-axi failure exits 0"
 assert_contains "$out" '  status: error' "quota-axi failure is an error outcome"
 assert_contains "$out" '  reason: quota-axi --json failed' "quota-axi failure is named"
+assert_equals 'error' "$(tail -n 1 "$HOME_DIR/state/jev-usage.jsonl" | jq -r '.status')" "quota failure records the error outcome"
+assert_equals 'jev-1.13.0' "$(tail -n 1 "$HOME_DIR/state/jev-usage.jsonl" | jq -r '.model')" "quota failure preserves validated response metadata"
+assert_equals '812' "$(tail -n 1 "$HOME_DIR/state/jev-usage.jsonl" | jq -r '.input_tokens')" "quota failure preserves validated usage"
 pass "quota evidence comes from one quota-axi --json read, and its failure is an error outcome"
 
 # --- API and response failures are error outcomes, exit 0 ----------------------
 reset_log
+rm -f "$HOME_DIR/state/jev-usage.jsonl"
 run_without_curl code out err "$BRIEF"
 expect_code 0 "$code" "missing curl exits 0"
 assert_contains "$out" '  status: error' "missing curl is a structured error outcome"
 assert_contains "$out" '  reason: curl not installed' "missing curl is named in the TOON block"
 assert_contains "$err" 'dispatch-resolve: error (curl not installed)' "missing curl is also reported on stderr"
+assert_equals '1' "$(wc -l < "$HOME_DIR/state/jev-usage.jsonl" | tr -d '[:space:]')" "missing curl leaves one error record"
+assert_equals '["at","confidence","input_tokens","model","reason","rule","status","task","x-typesafe-request-id"]' "$(jq -c 'keys' "$HOME_DIR/state/jev-usage.jsonl")" "partial calls retain the complete ledger schema"
+assert_equals '[null,null,null,null]' "$(jq -c '[.rule,.confidence,.model,.input_tokens]' "$HOME_DIR/state/jev-usage.jsonl")" "unavailable partial-call metadata is null"
 reset_log
+rm -f "$HOME_DIR/state/jev-usage.jsonl"
 TYPESAFE_API_KEY=$KEY FAKE_CURL_HTTP=429 run code out err "$BRIEF"
 expect_code 0 "$code" "http 429 exits 0"
 assert_contains "$out" '  status: error' "http 429 is an error outcome"
 assert_contains "$out" '  reason: http 429 after' "http status is reported"
 assert_contains "$err" 'dispatch-resolve: error (http 429' "error also goes to stderr"
+assert_equals '1' "$(wc -l < "$HOME_DIR/state/jev-usage.jsonl" | tr -d '[:space:]')" "HTTP failure leaves one error record"
+assert_equals 'req_fixture_123' "$(jq -r '."x-typesafe-request-id"' "$HOME_DIR/state/jev-usage.jsonl")" "HTTP failure retains the returned request id"
 reset_log
 TYPESAFE_API_KEY=$KEY FAKE_CURL_FAIL=1 run code out err "$BRIEF"
 expect_code 0 "$code" "curl failure exits 0"
 assert_contains "$out" '  reason: http 000 after' "transport failure reads as http 000"
+reset_log
+write_response "$RESPONSE" rule_4 0.9
+rm -f "$HOME_DIR/state/jev-usage.jsonl"
+TYPESAFE_API_KEY=$KEY FAKE_CURL_REQUEST_ID=absent run code out err "$BRIEF"
+assert_contains "$out" '  status: error' "a missing request id is an error outcome"
+assert_contains "$out" '  reason: response has no single x-typesafe-request-id header' "a missing request id cannot be accepted"
+assert_equals 'jev-1.13.0' "$(jq -r '.model' "$HOME_DIR/state/jev-usage.jsonl")" "a missing request id discarded the answering model"
+assert_equals '812' "$(jq -r '.input_tokens' "$HOME_DIR/state/jev-usage.jsonl")" "a missing request id discarded valid metering"
+assert_equals 'null' "$(jq -r '."x-typesafe-request-id"' "$HOME_DIR/state/jev-usage.jsonl")" "a missing request id was not recorded as null"
+reset_log
+rm -f "$HOME_DIR/state/jev-usage.jsonl"
+write_response "$RESPONSE" rule_4 0.9
+jq 'del(.answers.rule.choice)' "$RESPONSE" > "$TMP_ROOT/rejected-choice.json"
+mv "$TMP_ROOT/rejected-choice.json" "$RESPONSE"
+TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
+assert_contains "$out" '  reason: response is not a rule Choice answer' "an invalid Choice response was not rejected"
+assert_equals '1' "$(wc -l < "$HOME_DIR/state/jev-usage.jsonl" | tr -d '[:space:]')" "a rejected metered response did not produce exactly one ledger record"
+assert_equals 'error' "$(jq -r '.status' "$HOME_DIR/state/jev-usage.jsonl")" "a rejected metered response was not recorded as an error"
+assert_equals 'jev-1.13.0' "$(jq -r '.model' "$HOME_DIR/state/jev-usage.jsonl")" "a rejected metered response discarded the answering model"
+assert_equals '812' "$(jq -r '.input_tokens' "$HOME_DIR/state/jev-usage.jsonl")" "a rejected metered response discarded valid input usage"
+assert_equals 'req_fixture_123' "$(jq -r '."x-typesafe-request-id"' "$HOME_DIR/state/jev-usage.jsonl")" "a rejected metered response discarded its request id"
 reset_log
 printf '%s\n' '{"model":"jev","answers":{}}' > "$RESPONSE"
 TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
 assert_contains "$out" '  reason: response is not a rule Choice answer' "a malformed answer is an error outcome"
 reset_log
 write_response "$RESPONSE" rule_4 0.9
-jq '.usage = "bad"' "$RESPONSE" > "$TMP_ROOT/malformed-usage.json"
+jq 'del(.usage)' "$RESPONSE" > "$TMP_ROOT/malformed-usage.json"
 mv "$TMP_ROOT/malformed-usage.json" "$RESPONSE"
 TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
-assert_contains "$out" '  status: error' "malformed usage is an error outcome"
-assert_contains "$out" '  reason: response is not a rule Choice answer' "malformed usage cannot break text rendering silently"
+assert_contains "$out" '  status: error' "missing usage is an error outcome"
+assert_contains "$out" '  reason: response is not a rule Choice answer' "missing usage cannot be accepted"
+reset_log
+write_response "$RESPONSE" rule_4 0.9
+jq '.usage.input_tokens = -1' "$RESPONSE" > "$TMP_ROOT/malformed-usage.json"
+mv "$TMP_ROOT/malformed-usage.json" "$RESPONSE"
+TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
+assert_contains "$out" '  reason: response is not a rule Choice answer' "negative token counts cannot be accepted"
+reset_log
+write_response "$RESPONSE" rule_4 0.9
+jq '.usage.output_tokens = 1.5' "$RESPONSE" > "$TMP_ROOT/malformed-usage.json"
+mv "$TMP_ROOT/malformed-usage.json" "$RESPONSE"
+TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
+assert_contains "$out" '  reason: response is not a rule Choice answer' "fractional token counts cannot be accepted"
+reset_log
+write_response "$RESPONSE" rule_4 0.9
+jq 'del(.model)' "$RESPONSE" > "$TMP_ROOT/malformed-model.json"
+mv "$TMP_ROOT/malformed-model.json" "$RESPONSE"
+TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
+assert_contains "$out" '  reason: response is not a rule Choice answer' "a missing answering model cannot be accepted"
+for returned_model in jev-latest jev-1.14.0; do
+  reset_log
+  write_response "$RESPONSE" rule_4 0.9
+  jq --arg model "$returned_model" '.model = $model' "$RESPONSE" > "$TMP_ROOT/wrong-model.json"
+  mv "$TMP_ROOT/wrong-model.json" "$RESPONSE"
+  TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
+  assert_contains "$out" '  status: error' "$returned_model is an error outcome"
+  assert_contains "$out" '  reason: response is not a rule Choice answer' "$returned_model cannot answer the pinned request"
+  assert_not_contains "$out" '  profile:' "$returned_model cannot route work"
+  assert_absent "$LOG/quota-axi.calls" "$returned_model is rejected before quota and routing"
+  assert_equals "$returned_model" "$(tail -n 1 "$HOME_DIR/state/jev-usage.jsonl" | jq -r '.model')" "$returned_model is retained in the error ledger"
+done
 reset_log
 write_response "$RESPONSE" rule_4 0.9
 jq 'del(.answers.rule.probabilities.default)' "$RESPONSE" > "$TMP_ROOT/malformed-probabilities.json"
@@ -702,21 +943,45 @@ reset_log
 write_response "$RESPONSE" rule_9 0.9
 TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
 assert_contains "$out" '  status: error' "an unknown rule id is an error outcome"
-assert_contains "$out" '  reason: rule rule_9 is not in the rules file' "unknown rule id is named"
+assert_contains "$out" '  reason: response is not a rule Choice answer' "an unoffered rule id is a malformed Choice response"
 write_response "$RESPONSE" rule_0 0.9
 TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
 assert_contains "$out" '  status: error' "rule zero is an error outcome"
-assert_contains "$out" '  reason: rule rule_0 is not in the rules file' "rule zero cannot alias the final rule"
+assert_contains "$out" '  reason: response is not a rule Choice answer' "rule zero cannot alias the final rule"
 reset_log
 TYPESAFE_API_KEY=$KEY FAKE_CURL_HTTP=500 run code out err "$BRIEF"
 assert_contains "$out" '  status: error' "http 500 is a TOON error outcome"
 pass "API, transport, and response failures are error outcomes with exit 0"
 
-# --- configuration errors exit 2 and select nothing ----------------------------------
+# --- configuration errors exit 2 without selecting -----------------------------------
 reset_log
+rm -f "$HOME_DIR/state/jev-usage.jsonl"
+cp "$BASE_RULES" "$RULES"
+run_without_jq code out err "$BRIEF"
+expect_code 2 "$code" "missing jq exits 2"
+assert_contains "$err" 'jq required' "missing jq is named"
+assert_equals '1' "$(wc -l < "$HOME_DIR/state/jev-usage.jsonl" | tr -d '[:space:]')" "missing jq did not produce exactly one ledger record"
+assert_equals 'error' "$(jq -r '.status' "$HOME_DIR/state/jev-usage.jsonl")" "missing jq was not recorded as an error"
+assert_equals 'jq required' "$(jq -r '.reason' "$HOME_DIR/state/jev-usage.jsonl")" "missing jq ledger record omitted its reason"
+
+reset_log
+rm -f "$HOME_DIR/state/jev-usage.jsonl"
+printf '%s\n' '{"rules":[' > "$RULES"
+TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
+expect_code 2 "$code" "malformed rules exit 2"
+assert_contains "$err" 'not JSON' "malformed rules are named"
+assert_equals '1' "$(wc -l < "$HOME_DIR/state/jev-usage.jsonl" | tr -d '[:space:]')" "malformed rules did not produce exactly one ledger record"
+assert_equals 'error' "$(jq -r '.status' "$HOME_DIR/state/jev-usage.jsonl")" "malformed rules were not recorded as an error"
+assert_contains "$(jq -r '.reason' "$HOME_DIR/state/jev-usage.jsonl")" 'malformed rules file:' "malformed rules ledger record omitted its reason"
+assert_absent "$LOG/argv" "malformed rules reached the network"
+pass "post-boundary configuration failures append one error record"
+
+reset_log
+rm -f "$HOME_DIR/state/jev-usage.jsonl"
 TYPESAFE_API_KEY=$KEY run code out err
 expect_code 2 "$code" "missing brief exits 2"
 assert_contains "$err" 'brief file required' "missing brief is named"
+assert_absent "$HOME_DIR/state/jev-usage.jsonl" "a pre-boundary missing brief created a ledger record"
 rm -f "$RULES"
 ln -s "$TMP_ROOT/missing-rules-target.json" "$RULES"
 TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"

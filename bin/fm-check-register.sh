@@ -32,11 +32,47 @@ fm_pr_regular_destination_on_device_or_absent "$TRUST" "$STATE_DEVICE" \
 HASH=$(fm_custom_check_sha256 "$CHECK") || { echo "error: custom check hash is unavailable" >&2; exit 1; }
 umask 077
 TMP=$(mktemp "$STATE/.fm-custom-check-trust.XXXXXX") || exit 1
-trap '[ -z "$TMP" ] || rm -f -- "$TMP"' EXIT HUP INT TERM
+BACKUP=
+BACKUP_TMP=
+cleanup() {
+  local cleanup_path
+  if [ -n "$TMP" ]; then
+    cleanup_path=$TMP
+    TMP=
+    rm -f -- "$cleanup_path"
+  fi
+  if [ -n "$BACKUP_TMP" ]; then
+    cleanup_path=$BACKUP_TMP
+    BACKUP_TMP=
+    rm -f -- "$cleanup_path"
+  fi
+  if [ -n "$BACKUP" ]; then
+    cleanup_path=$BACKUP
+    BACKUP=
+    rm -f -- "$TRUST"
+    mv -f -- "$cleanup_path" "$TRUST" || true
+  fi
+}
+trap cleanup EXIT
+trap 'cleanup; exit 1' HUP INT TERM
 printf '%s\n%s\n' fm-custom-check-v1 "$HASH" > "$TMP" || exit 1
 chmod 0600 "$TMP" || exit 1
 fm_pr_regular_destination_on_device_or_absent "$TRUST" "$STATE_DEVICE" || exit 1
+if [ -e "$TRUST" ] && fm_custom_check_trust_read "$STATE" "$ID" \
+  && [ "$FM_CUSTOM_CHECK_HASH" = "$HASH" ]; then
+  BACKUP_TMP=$(mktemp "$STATE/.fm-custom-check-trust-backup.XXXXXX") || exit 1
+  cp -p "$TRUST" "$BACKUP_TMP" || exit 1
+  BACKUP=$BACKUP_TMP
+  BACKUP_TMP=
+fi
 mv -f -- "$TMP" "$TRUST" || exit 1
 TMP=
-fm_custom_check_registered "$STATE" "$ID" || { rm -f -- "$TRUST"; exit 1; }
+if ! fm_custom_check_registered "$STATE" "$ID"; then
+  [ -n "$BACKUP" ] || rm -f -- "$TRUST"
+  exit 1
+fi
+if [ -n "$BACKUP" ]; then
+  rm -f -- "$BACKUP" || exit 1
+  BACKUP=
+fi
 printf 'registered: state/%s.check.sh\n' "$ID"

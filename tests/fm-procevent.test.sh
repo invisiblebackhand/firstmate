@@ -3426,7 +3426,10 @@ pe_register "$HFLOOR" lavish floor-src -- \
   "$STORM_SOURCE" "$TMP_ROOT/launch-times" "$HFLOOR" "$ROOT"
 FM_PROCEVENT_OWNER_LEASE_SECONDS=4 FM_PROCEVENT_OWNER_CHECK_SECONDS=1 \
   FM_PROCEVENT_LAUNCH_FLOOR_SECONDS=1 pe "$HFLOOR" reconcile >/dev/null
-floor_deadline=$((SECONDS + 12))
+# Two owner-death cycles normally take about ten seconds. Leave scheduler
+# margin here; the timestamp assertions below, not this liveness deadline, own
+# the pacing guarantee.
+floor_deadline=$((SECONDS + 20))
 while :; do
   floor_count=0
   [ ! -f "$TMP_ROOT/launch-times" ] \
