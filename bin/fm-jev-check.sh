@@ -32,7 +32,6 @@ ALIAS_RECORD="$STATE/.jev-monitor-alias"
 SPEND_RECORD="$STATE/.jev-monitor-spend"
 CHECK_ID=jev-monitor
 CHECK_SHIM="$STATE/$CHECK_ID.check.sh"
-CHECK_TRUST="$STATE/$CHECK_ID.check-trust"
 REGISTER_BIN="$SCRIPT_DIR/fm-check-register.sh"
 UNREGISTER_BIN="$SCRIPT_DIR/fm-check-unregister.sh"
 TS_BASE=https://api.typesafe.ai
@@ -159,8 +158,8 @@ check_spend() {
     [ .[] | select((.input_tokens | type) == "number") ] as $calls |
     ($now | gmtime | .[0:2]) as $month |
     ($now | gmtime | .[0:3]) as $day |
-    ([ $calls[] | select(.at <= $now and (.at | gmtime | .[0:2]) == $month) | .input_tokens ] | add // 0) * $price as $monthly |
-    ([ $calls[] | select(.at <= $now and (.at | gmtime | .[0:3]) == $day) | .input_tokens ] | add // 0) * $price as $daily |
+    (([ $calls[] | select(.at <= $now and (.at | gmtime | .[0:2]) == $month) | .input_tokens ] | add // 0) * $price) as $monthly |
+    (([ $calls[] | select(.at <= $now and (.at | gmtime | .[0:3]) == $day) | .input_tokens ] | add // 0) * $price) as $daily |
     {
       monthly: {period: ($now | strftime("%Y-%m")), usd: $monthly, alert: ($monthly >= 10)},
       daily: {period: ($now | strftime("%Y-%m-%d")), usd: $daily, alert: ($daily >= 1)}

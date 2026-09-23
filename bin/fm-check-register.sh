@@ -58,7 +58,8 @@ trap 'cleanup; exit 1' HUP INT TERM
 printf '%s\n%s\n' fm-custom-check-v1 "$HASH" > "$TMP" || exit 1
 chmod 0600 "$TMP" || exit 1
 fm_pr_regular_destination_on_device_or_absent "$TRUST" "$STATE_DEVICE" || exit 1
-if [ -e "$TRUST" ]; then
+if [ -e "$TRUST" ] && fm_custom_check_trust_read "$STATE" "$ID" \
+  && [ "$FM_CUSTOM_CHECK_HASH" = "$HASH" ]; then
   BACKUP_TMP=$(mktemp "$STATE/.fm-custom-check-trust-backup.XXXXXX") || exit 1
   cp -p "$TRUST" "$BACKUP_TMP" || exit 1
   BACKUP=$BACKUP_TMP
