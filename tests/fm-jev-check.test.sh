@@ -81,7 +81,7 @@ test_spend_thresholds_use_the_local_root_ledger() {
   write_models 2026-09-10
   printf '%s\n' '{"at":1760000000,"task":"fixture","status":"clear","rule":"rule_1","confidence":0.9,"model":"jev-1.13.0","input_tokens":25000000,"x-typesafe-request-id":"req_fixture"}' > "$ledger"
   run_check "$home" "$out"
-  assert_contains "$(cat "$out")" 'Jev spend alert: local root ledger trailing-24-hour 1.05 USD reaches the 1 USD daily threshold' "the daily threshold was not calculated from fixture tokens"
+  assert_contains "$(cat "$out")" 'Jev spend alert: local root ledger UTC calendar day 1.05 USD reaches the 1 USD daily threshold' "the daily threshold was not calculated from fixture tokens"
   assert_not_contains "$(cat "$out")" 'month-to-date' "the month threshold fired below 10 USD"
   run_check "$home" "$out"
   [ ! -s "$out" ] || fail "an unchanged spend threshold repeated: $(cat "$out")"
@@ -162,8 +162,28 @@ test_local_homes_read_one_local_root_ledger() {
   printf 'schema=fm-secondmate-parent.v1\nroute=local\nparent_home=%s\n' "$root" > "$home/.fm-secondmate-parent"
   printf '%s\n' '{"at":1760000000,"task":"primary","status":"clear","rule":"rule_1","confidence":0.9,"model":"jev-1.13.0","input_tokens":25000000,"x-typesafe-request-id":"req_primary"}' > "$ledger"
   run_check "$home" "$out"
-  assert_contains "$(cat "$out")" 'Jev spend alert: local root ledger trailing-24-hour 1.05 USD reaches the 1 USD daily threshold' "a local child home did not read the local-root ledger"
+  assert_contains "$(cat "$out")" 'Jev spend alert: local root ledger UTC calendar day 1.05 USD reaches the 1 USD daily threshold' "a local child home did not read the local-root ledger"
   pass "local homes monitor one local-root ledger"
+}
+
+test_daily_threshold_does_not_cross_utc_midnight() {
+  local home out ledger state
+  home=$(make_home daily-midnight)
+  out="$TMP_ROOT/daily-midnight/out"
+  ledger="$home/state/jev-usage.jsonl"
+  state="$home/state/.jev-monitor-spend"
+  write_models 2026-09-10
+
+  printf '%s\n' '{"at":1767225540,"task":"december-close","status":"clear","rule":"rule_1","confidence":0.9,"model":"jev-1.13.0","input_tokens":25000000,"x-typesafe-request-id":"req_december_close"}' > "$ledger"
+  run_check "$home" "$out" 1767225540
+  assert_contains "$(cat "$out")" 'local root ledger UTC calendar day 1.05 USD reaches the 1 USD daily threshold' "the 23:59 UTC call did not alert on its own day"
+  assert_equals '2025-12-31' "$(jq -r '.daily.period' "$state")" "the first daily alert used the wrong UTC date"
+
+  run_check "$home" "$out" 1767225660
+  [ ! -s "$out" ] || fail "the prior-day call alerted again after UTC midnight: $(cat "$out")"
+  assert_equals '2026-01-01' "$(jq -r '.daily.period' "$state")" "the daily state did not advance at UTC midnight"
+  assert_equals 'false' "$(jq -r '.daily.alert' "$state")" "the prior-day call counted in the new UTC day"
+  pass "daily spend is counted and deduplicated within one UTC calendar day"
 }
 
 test_threshold_state_is_period_aware() {
@@ -222,6 +242,7 @@ test_models_response_requires_the_full_listing_schema
 test_impossible_release_dates_never_change_alias_state
 test_future_records_do_not_count_toward_spend
 test_local_homes_read_one_local_root_ledger
+test_daily_threshold_does_not_cross_utc_midnight
 test_threshold_state_is_period_aware
 test_absent_key_never_calls_the_models_endpoint
 test_arm_registers_a_watcher_shim_without_running_the_check

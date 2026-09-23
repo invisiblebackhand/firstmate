@@ -556,7 +556,7 @@ The live rule-match evidence is recorded in [`verification/dispatch-resolve.md`]
 
 `bin/fm-jev-check.sh check` is the one-line custom watcher check for the TypeSafe/Jev follow-up.
 It makes the unmetered `GET /v1/models` request and reports a changed `jev-latest.release_date`, with the required reminder to replay the dispatch tests before changing a pinned model.
-It also sums that local-root ledger at the documented price of USD 0.042 per million input tokens and alerts when recorded local usage reaches USD 10 in the current UTC month or USD 1 in the trailing 24 hours.
+It also sums that local-root ledger at the documented price of USD 0.042 per million input tokens and alerts when recorded local usage reaches USD 10 in the current UTC month or USD 1 in the current UTC calendar day.
 These local alerts are attribution aids only; the TypeSafe console is the account-wide authority for the USD 10 monthly threshold.
 The monitor records its last alias date and period-aware monthly and daily threshold state in gitignored `state/` files so an unchanged condition does not wake every polling cycle or suppress a new-period alert.
 

@@ -8,9 +8,10 @@
 #
 # `check` emits one line only when jev-latest has a new release date or the
 # topmost reachable local Firstmate root's ledger reaches USD 10 in the current
-# UTC month or USD 1 in 24 hours. Primary and local descendant homes share it;
-# independent and remote-rooted homes do not. It is keyed by neither TypeSafe
-# account nor API key, so different keys under one local root share its alerts.
+# UTC month or USD 1 in the current UTC calendar day. Primary and local
+# descendant homes share it; independent and remote-rooted homes do not. It is
+# keyed by neither TypeSafe account nor API key, so different keys under one
+# local root share its alerts.
 # `arm` writes and registers state/jev-monitor.check.sh for watcher polling.
 # `disarm` removes that shim, its trust binding, and this check's records.
 #
@@ -167,8 +168,9 @@ check_spend() {
     if all(.[]; valid) then . else error("invalid ledger record") end |
     [ .[] | select((.input_tokens | type) == "number") ] as $calls |
     ($now | gmtime | .[0:2]) as $month |
+    ($now | gmtime | .[0:3]) as $day |
     ([ $calls[] | select(.at <= $now and (.at | gmtime | .[0:2]) == $month) | .input_tokens ] | add // 0) * $price as $monthly |
-    ([ $calls[] | select(.at >= ($now - 86400) and .at <= $now) | .input_tokens ] | add // 0) * $price as $daily |
+    ([ $calls[] | select(.at <= $now and (.at | gmtime | .[0:3]) == $day) | .input_tokens ] | add // 0) * $price as $daily |
     {
       monthly: {period: ($now | strftime("%Y-%m")), usd: $monthly, alert: ($monthly >= 10)},
       daily: {period: ($now | strftime("%Y-%m-%d")), usd: $daily, alert: ($daily >= 1)}
@@ -186,7 +188,7 @@ check_spend() {
        then "local root ledger month-to-date \(.monthly.usd | . * 100 | floor / 100) USD reaches the 10 USD local threshold"
        else empty end),
       (if .daily.alert and $previous.daily != {period: .daily.period, alert: .daily.alert}
-       then "local root ledger trailing-24-hour \(.daily.usd | . * 100 | floor / 100) USD reaches the 1 USD daily threshold"
+       then "local root ledger UTC calendar day \(.daily.usd | . * 100 | floor / 100) USD reaches the 1 USD daily threshold"
        else empty end)
     ] | join("; ")' <<<"$flags") \
     || { append_finding 'Jev spend check failed: threshold state is malformed'; return; }
