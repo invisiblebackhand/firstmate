@@ -220,7 +220,7 @@ shim_content() {
 }
 
 action_arm() {
-  local home want temp device shim_created=0
+  local home want temp device
   mkdir -p "$STATE" || return 1
   [ -d "$STATE" ] && [ ! -L "$STATE" ] || return 1
   case "$FM_HOME" in
@@ -235,6 +235,10 @@ action_arm() {
       printf 'fm-jev-check: refusing to replace %s\n' "$CHECK_SHIM" >&2
       return 1
     }
+    if fm_custom_check_registered "$STATE" "$CHECK_ID"; then
+      printf 'armed: state/%s.check.sh\n' "$CHECK_ID"
+      return 0
+    fi
   else
     temp=$(umask 077; mktemp "$STATE/.fm-jev-check.XXXXXX") || return 1
     if ! printf '%s\n' "$want" > "$temp" || ! chmod 0700 "$temp" \
@@ -242,10 +246,9 @@ action_arm() {
       rm -f -- "$temp"
       return 1
     fi
-    shim_created=1
   fi
   if ! FM_HOME="$home" "$REGISTER_BIN" "$CHECK_ID" >/dev/null; then
-    [ "$shim_created" -eq 0 ] || rm -f -- "$CHECK_SHIM"
+    rm -f -- "$CHECK_SHIM"
     printf 'fm-jev-check: could not register %s\n' "$CHECK_SHIM" >&2
     return 1
   fi

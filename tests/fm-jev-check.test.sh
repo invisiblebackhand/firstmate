@@ -247,25 +247,59 @@ test_arm_registers_a_watcher_shim_without_running_the_check() {
   pass "Jev monitor arms through the registered custom-check contract"
 }
 
-test_failed_rearm_preserves_the_existing_registration() {
-  local home fake out status shim_before trust_before
+test_rearm_preserves_the_existing_registration_without_rewriting() {
+  local home fake marker out status shim_before trust_before
   home=$(make_home rearm-register-fail)
   fake="$TMP_ROOT/rearm-register-fail/fakebin"
+  marker="$TMP_ROOT/rearm-register-fail/mktemp-called"
   out="$TMP_ROOT/rearm-register-fail/out"
   mkdir -p "$fake"
   FM_HOME="$home" "$CHECK" arm >/dev/null || fail "could not create the existing registration fixture"
   shim_before=$(cat "$home/state/jev-monitor.check.sh")
   trust_before=$(cat "$home/state/jev-monitor.check-trust")
-  printf '%s\n' '#!/usr/bin/env bash' 'exit 1' > "$fake/mktemp"
+  printf '%s\n' '#!/usr/bin/env bash' 'printf called > "${FAKE_MKTEMP_CALL:?}"' 'exit 1' > "$fake/mktemp"
   chmod 0700 "$fake/mktemp"
 
   status=0
-  env PATH="$fake:$PATH" FM_HOME="$home" "$CHECK" arm >"$out" 2>&1 || status=$?
-  expect_code 1 "$status" "failed rearm exit"
-  assert_contains "$(cat "$out")" 'could not register' "failed rearm did not report registration failure"
-  assert_equals "$shim_before" "$(cat "$home/state/jev-monitor.check.sh")" "failed rearm changed the existing shim"
-  assert_equals "$trust_before" "$(cat "$home/state/jev-monitor.check-trust")" "failed rearm changed the existing trust binding"
-  pass "a transient rearm failure preserves the existing registration"
+  env PATH="$fake:$PATH" FAKE_MKTEMP_CALL="$marker" FM_HOME="$home" "$CHECK" arm >"$out" 2>&1 || status=$?
+  expect_code 0 "$status" "idempotent rearm exit"
+  assert_contains "$(cat "$out")" 'armed: state/jev-monitor.check.sh' "idempotent rearm was not reported"
+  assert_absent "$marker" "rearm rewrote an already valid registration"
+  assert_equals "$shim_before" "$(cat "$home/state/jev-monitor.check.sh")" "rearm changed the existing shim"
+  assert_equals "$trust_before" "$(cat "$home/state/jev-monitor.check-trust")" "rearm changed the existing trust binding"
+  pass "rearm leaves an existing valid registration unchanged"
+}
+
+test_post_replacement_registration_failure_removes_the_unregistered_shim() {
+  local home fake count out status real_shasum
+  home=$(make_home rearm-post-replacement-fail)
+  fake="$TMP_ROOT/rearm-post-replacement-fail/fakebin"
+  count="$TMP_ROOT/rearm-post-replacement-fail/shasum-count"
+  out="$TMP_ROOT/rearm-post-replacement-fail/out"
+  mkdir -p "$fake"
+  FM_HOME="$home" "$CHECK" arm >/dev/null || fail "could not create the post-replacement fixture"
+  mv "$home/state/jev-monitor.check-trust" "$home/state/jev-monitor.check-trust.saved"
+  real_shasum=$(command -v shasum)
+  printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    'count=0' \
+    '[ ! -f "$FAKE_SHASUM_COUNT" ] || read -r count < "$FAKE_SHASUM_COUNT"' \
+    'count=$((count + 1))' \
+    'printf "%s\n" "$count" > "$FAKE_SHASUM_COUNT"' \
+    '[ "$count" -ne 1 ] || exec "$REAL_SHASUM" "$@"' \
+    'exit 1' > "$fake/shasum"
+  chmod 0700 "$fake/shasum"
+
+  status=0
+  env PATH="$fake:$PATH" REAL_SHASUM="$real_shasum" FAKE_SHASUM_COUNT="$count" \
+    FM_HOME="$home" "$CHECK" arm >"$out" 2>&1 || status=$?
+  expect_code 1 "$status" "post-replacement registration failure exit"
+  assert_contains "$(cat "$out")" 'could not register' "post-replacement failure was not reported"
+  assert_equals '2' "$(cat "$count")" "fixture did not reach post-replacement validation"
+  assert_absent "$home/state/jev-monitor.check.sh" "post-replacement failure left an unregistered shim"
+  assert_absent "$home/state/jev-monitor.check-trust" "post-replacement failure left an invalid trust binding"
+  assert_present "$home/state/jev-monitor.check-trust.saved" "post-replacement failure changed the fixture backup"
+  pass "post-replacement registration failure leaves no unregistered shim"
 }
 
 test_failed_first_arm_removes_only_the_created_shim() {
@@ -368,7 +402,8 @@ test_daily_threshold_does_not_cross_utc_midnight
 test_threshold_state_is_period_aware
 test_absent_key_never_calls_the_models_endpoint
 test_arm_registers_a_watcher_shim_without_running_the_check
-test_failed_rearm_preserves_the_existing_registration
+test_rearm_preserves_the_existing_registration_without_rewriting
+test_post_replacement_registration_failure_removes_the_unregistered_shim
 test_failed_first_arm_removes_only_the_created_shim
 test_disarm_refuses_a_symlinked_state_directory
 test_disarm_preserves_state_when_a_child_artifact_is_unsafe
