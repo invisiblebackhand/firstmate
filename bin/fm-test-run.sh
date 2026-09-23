@@ -1456,10 +1456,11 @@ families_for_changed_path() {
       printf '%s\n' "__script__:fm-jev-check.test.sh"
       ;;
     bin/fm-env-lib.sh)
-      # The one .env accessor, sourced by bin/fm-x-lib.sh (Relay token) and
-      # bin/fm-dispatch-resolve.sh (TYPESAFE_API_KEY).
+      # The one .env accessor, sourced by bin/fm-x-lib.sh (Relay token),
+      # bin/fm-dispatch-resolve.sh, and bin/fm-jev-check.sh (TYPESAFE_API_KEY).
       printf '%s\n' pr-forge
       printf '%s\n' "__script__:fm-dispatch-resolve.test.sh"
+      printf '%s\n' "__script__:fm-jev-check.test.sh"
       ;;
     .pi/extensions/fm-branch-supervision.ts|.pi/extensions/lib/fm-async-exec.ts|\
     .pi/extensions/lib/fm-branch-dispatch.ts|.pi/extensions/lib/fm-native-contract.ts)

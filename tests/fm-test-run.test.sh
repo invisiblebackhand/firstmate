@@ -135,6 +135,7 @@ init_changed_fixture_repo() {
   : >"$repo/bin/fm-quota-axi-lib.sh"
   : >"$repo/bin/fm-quota-choose.sh"
   : >"$repo/bin/fm-dispatch-resolve.sh"
+  : >"$repo/bin/fm-env-lib.sh"
   : >"$repo/bin/fm-jev-check.sh"
   : >"$repo/bin/unmapped-source.sh"
   # A shared top-level test fixture read by two suites in different families,
@@ -191,6 +192,17 @@ test_jev_monitor_suite_registration() {
   tmp=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-run-jev-monitor.XXXXXX")
   repo="$tmp/repo"
   init_changed_fixture_repo "$repo"
+  printf '\n' >>"$repo/bin/fm-env-lib.sh"
+  listed=$(cd "$repo" && bin/fm-test-run.sh --list --changed --base HEAD)
+  assert_contains "$listed" "tests/fm-pr-merge.test.sh" \
+    "shared environment accessor change omitted its Relay family"
+  assert_contains "$listed" "tests/fm-dispatch-resolve.test.sh" \
+    "shared environment accessor change omitted the dispatch resolver suite"
+  assert_contains "$listed" "tests/fm-jev-check.test.sh" \
+    "shared environment accessor change omitted the Jev monitor suite"
+
+  git -C "$repo" add bin/fm-env-lib.sh
+  git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm env-accessor-change
   printf '\n' >>"$repo/bin/fm-jev-check.sh"
   listed=$(cd "$repo" && bin/fm-test-run.sh --list --changed --base HEAD)
   [ "$listed" = "tests/fm-jev-check.test.sh" ] \
