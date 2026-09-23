@@ -249,7 +249,7 @@ append_ledger() {
     }') || return 1
   device=$(fm_pr_file_device "$state") || return 1
   if [ ! -e "$ledger" ] && [ ! -L "$ledger" ]; then
-    (umask 077; : > "$ledger") || return 1
+    (umask 077; set -C; : > "$ledger") 2>/dev/null || :
   fi
   fm_pr_private_file_valid "$ledger" 600 "$device" || return 1
   printf '%s\n' "$record" >> "$ledger" || return 1

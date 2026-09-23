@@ -157,6 +157,17 @@ fi
 printf '%s\n' "$*" >> "${QUOTA_AXI_CALLS:?}"
 [ "${FAKE_QUOTA_FAIL:-0}" = 1 ] && exit 1
 [ "${1:-}" = --json ] || exit 2
+if [ -n "${FAKE_QUOTA_BARRIER_DIR:-}" ]; then
+  : > "$FAKE_QUOTA_BARRIER_DIR/$$"
+  barrier_waits=0
+  while [ "$barrier_waits" -lt 500 ]; do
+    set -- "$FAKE_QUOTA_BARRIER_DIR"/*
+    [ "$#" -ge "${FAKE_QUOTA_BARRIER_COUNT:?}" ] && break
+    sleep 0.01
+    barrier_waits=$((barrier_waits + 1))
+  done
+  [ "$#" -ge "$FAKE_QUOTA_BARRIER_COUNT" ] || exit 1
+fi
 cat "${QUOTA_AXI_FIXTURE:?}"
 SH
 chmod +x "$FAKEBIN/quota-axi"
@@ -284,6 +295,27 @@ assert_present "$HOME_DIR/state/jev-usage.jsonl" "a local secondmate writes its 
 assert_absent "$PARENT_HOME/state/jev-usage.jsonl" "a local secondmate wrote its parent's resolver ledger"
 assert_equals 'secondmate-task' "$(jq -r '.task' "$HOME_DIR/state/jev-usage.jsonl")" "the per-home record retains its task label"
 pass "local-secondmate resolver calls stay in their own home ledger"
+
+# --- concurrent first writes preserve every record --------------------------
+rm -f "$HOME_DIR/state/jev-usage.jsonl"
+FIRST_WRITE_BARRIER="$TMP_ROOT/first-write-barrier"
+mkdir -p "$FIRST_WRITE_BARRIER"
+first_write_pids=()
+for first_write_id in 1 2 3 4; do
+  PATH="$FAKEBIN:$BASE_PATH" FM_ROOT_OVERRIDE="$HOME_DIR" FM_HOME="$HOME_DIR" TYPESAFE_API_KEY="$KEY" \
+    FAKE_QUOTA_BARRIER_DIR="$FIRST_WRITE_BARRIER" FAKE_QUOTA_BARRIER_COUNT=4 \
+    "$TOOL" "$BRIEF" --project "first-write-$first_write_id" \
+    > "$TMP_ROOT/first-write-$first_write_id.out" 2> "$TMP_ROOT/first-write-$first_write_id.err" &
+  first_write_pids+=("$!")
+done
+first_write_status=0
+for first_write_pid in "${first_write_pids[@]}"; do
+  wait "$first_write_pid" || first_write_status=1
+done
+expect_code 0 "$first_write_status" "concurrent first-write resolver exits"
+assert_equals '4' "$(wc -l < "$HOME_DIR/state/jev-usage.jsonl" | tr -d '[:space:]')" "concurrent first writes lost a ledger record"
+assert_equals '4' "$(jq -s '[.[].task] | unique | length' "$HOME_DIR/state/jev-usage.jsonl")" "concurrent first writes duplicated a task record"
+pass "concurrent first writes preserve one ledger record per resolver call"
 
 # --- ledger destination must remain private and single-link ------------------
 ledger="$HOME_DIR/state/jev-usage.jsonl"
