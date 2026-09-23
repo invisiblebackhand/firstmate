@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# fm-jev-check.sh - report a Jev alias move or local-ledger spend threshold.
+# fm-jev-check.sh - report a Jev alias move or account-ledger spend threshold.
 #
 # Usage:
 #   fm-jev-check.sh [check]
@@ -7,7 +7,7 @@
 #   fm-jev-check.sh disarm
 #
 # `check` emits one line only when jev-latest has a new release date or the
-# local ledger reaches USD 10 in the current UTC month or USD 1 in 24 hours.
+# account ledger reaches USD 10 in the current UTC month or USD 1 in 24 hours.
 # `arm` writes and registers state/jev-monitor.check.sh for watcher polling.
 # `disarm` removes that shim, its trust binding, and this check's records.
 #
@@ -20,9 +20,9 @@ export -n TYPESAFE_API_KEY_PRIVATE 2>/dev/null || true
 unset TYPESAFE_API_KEY
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}}"
+FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
+FM_HOME="${FM_HOME:-$FM_ROOT}"
 STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
-LEDGER="$STATE/jev-usage.jsonl"
 ALIAS_RECORD="$STATE/.jev-monitor-alias"
 SPEND_RECORD="$STATE/.jev-monitor-spend"
 CHECK_ID=jev-monitor
@@ -44,7 +44,7 @@ PRICE_PER_INPUT_TOKEN=0.000000042
 usage() {
   cat <<'EOF'
 Usage:
-  fm-jev-check.sh [check]  report an alias move or local-ledger spend threshold
+  fm-jev-check.sh [check]  report an alias move or account-ledger spend threshold
   fm-jev-check.sh arm      write and register state/jev-monitor.check.sh
   fm-jev-check.sh disarm   remove the check shim, trust binding, and records
 
@@ -100,12 +100,23 @@ check_alias() {
     rm -f "$response" "$headers"
     return
   fi
-  release=$(jq -r '.. | objects | select((.id? == "jev-latest") or (.name? == "jev-latest")) | .release_date? // empty' "$response" 2>/dev/null | head -n 1)
-  rm -f "$response" "$headers"
-  if [ -z "$release" ] || [[ "$release" == *$'\n'* ]] || [[ "$release" == *$'\r'* ]]; then
-    append_finding 'Jev alias check failed: jev-latest release_date is absent or malformed'
+  if ! jq -e '
+      type == "object" and
+      (.models | type) == "array" and
+      all(.models[];
+        type == "object" and
+        (.name | type) == "string" and (.name | length) > 0 and
+        (.description | type) == "string" and
+        (.release_date | type) == "string" and
+        (.release_date | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$"))) and
+      ([.models[] | select(.name == "jev-latest")] | length) == 1
+    ' "$response" >/dev/null 2>&1; then
+    rm -f "$response" "$headers"
+    append_finding 'Jev alias check failed: models response is malformed'
     return
   fi
+  release=$(jq -r '.models[] | select(.name == "jev-latest") | .release_date' "$response")
+  rm -f "$response" "$headers"
   previous=
   record_read "$ALIAS_RECORD" && previous=$FM_JEV_RECORD
   if [ -n "$previous" ] && [ "$previous" != "$release" ]; then
@@ -115,24 +126,44 @@ check_alias() {
 }
 
 check_spend() {
-  local now flags alert_flags previous finding
-  [ -f "$LEDGER" ] && [ ! -L "$LEDGER" ] || return
+  local account_home ledger now flags alert_flags previous finding
+  if ! command -v fm_firstmate_root_home >/dev/null 2>&1; then
+    # shellcheck source=bin/fm-wake-lib.sh
+    . "$SCRIPT_DIR/fm-wake-lib.sh"
+  fi
+  account_home=$(fm_firstmate_root_home "$FM_HOME") \
+    || { append_finding 'Jev spend check failed: account ledger root is unavailable'; return; }
+  ledger="$account_home/state/jev-usage.jsonl"
+  [ -f "$ledger" ] && [ ! -L "$ledger" ] || return
   now=$(now_epoch)
   flags=$(jq -cser --argjson now "$now" --argjson price "$PRICE_PER_INPUT_TOKEN" '
-    def valid: (.at | type) == "number" and (.input_tokens | type) == "number" and .at >= 0 and .input_tokens >= 0;
-    [ .[] | select(type == "object" and valid) ] as $calls |
+    def integer: type == "number" and floor == .;
+    def nullable($kind): . == null or type == $kind;
+    def valid:
+      type == "object" and
+      has("at") and has("task") and has("status") and has("rule") and has("confidence") and
+      has("model") and has("input_tokens") and has("x-typesafe-request-id") and
+      (.at | integer) and .at >= 0 and
+      (.task | type) == "string" and (.status | type) == "string" and
+      (.rule | nullable("string")) and
+      (.confidence == null or ((.confidence | type) == "number" and .confidence >= 0 and .confidence <= 1)) and
+      (.model | nullable("string")) and
+      (.input_tokens == null or ((.input_tokens | integer) and .input_tokens >= 0)) and
+      (."x-typesafe-request-id" | nullable("string"));
+    if all(.[]; valid) then . else error("invalid ledger record") end |
+    [ .[] | select((.input_tokens | type) == "number") ] as $calls |
     ($now | gmtime | .[0:2]) as $month |
-    ([ $calls[] | select((.at | gmtime | .[0:2]) == $month) | .input_tokens ] | add // 0) * $price as $monthly |
-    ([ $calls[] | select(.at >= ($now - 86400)) | .input_tokens ] | add // 0) * $price as $daily |
+    ([ $calls[] | select(.at <= $now and (.at | gmtime | .[0:2]) == $month) | .input_tokens ] | add // 0) * $price as $monthly |
+    ([ $calls[] | select(.at >= ($now - 86400) and .at <= $now) | .input_tokens ] | add // 0) * $price as $daily |
     {monthly: $monthly, daily: $daily, month_alert: ($monthly >= 10), day_alert: ($daily >= 1)}
-  ' "$LEDGER" 2>/dev/null) || { append_finding 'Jev spend check failed: ledger is malformed'; return; }
+  ' "$ledger" 2>/dev/null) || { append_finding 'Jev spend check failed: ledger is malformed'; return; }
   previous=
   record_read "$SPEND_RECORD" && previous=$FM_JEV_RECORD
   alert_flags=$(jq -c '{month_alert, day_alert}' <<<"$flags") || { append_finding 'Jev spend check failed: threshold state is malformed'; return; }
   finding=$(jq -r '
     [
-      (if .month_alert then "local ledger month-to-date \(.monthly | . * 100 | floor / 100) USD reaches the 10 USD account threshold" else empty end),
-      (if .day_alert then "local ledger trailing-24-hour \(.daily | . * 100 | floor / 100) USD reaches the 1 USD daily threshold" else empty end)
+      (if .month_alert then "account ledger month-to-date \(.monthly | . * 100 | floor / 100) USD reaches the 10 USD account threshold" else empty end),
+      (if .day_alert then "account ledger trailing-24-hour \(.daily | . * 100 | floor / 100) USD reaches the 1 USD daily threshold" else empty end)
     ] | join("; ")' <<<"$flags")
   if [ -n "$finding" ] && [ "$previous" != "$alert_flags" ]; then
     append_finding "Jev spend alert: $finding"

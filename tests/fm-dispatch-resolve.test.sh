@@ -25,7 +25,7 @@ RULES="$HOME_DIR/config/crew-dispatch.json"
 QUOTA="$TMP_ROOT/quota.json"
 BASE_PATH=$PATH
 mkdir -p "$HOME_DIR/config" "$LOG" "$NO_CURL_BIN"
-for command_name in bash chmod cp dirname jq mktemp rm; do
+for command_name in bash chmod cp date dirname jq mkdir mktemp rm; do
   ln -s "$(command -v "$command_name")" "$NO_CURL_BIN/$command_name"
 done
 
@@ -120,7 +120,14 @@ out=''
 while [ $# -gt 0 ]; do
   case "$1" in
     -o) out=$2; shift 2 ;;
-    -D) printf '%s\n' "x-typesafe-request-id: req_fixture_123" > "$2"; shift 2 ;;
+    -D)
+      if [ "${FAKE_CURL_REQUEST_ID:-req_fixture_123}" != absent ]; then
+        printf '%s\n' "x-typesafe-request-id: ${FAKE_CURL_REQUEST_ID:-req_fixture_123}" > "$2"
+      else
+        : > "$2"
+      fi
+      shift 2
+      ;;
     *) printf '%s\n' "$1" >> "${FAKE_CURL_LOG:?}/argv"; shift ;;
   esac
 done
@@ -165,7 +172,7 @@ reset_log() {
 run() {
   local __exit=$1 __out=$2 __err=$3 _out _code
   shift 3
-  _out=$(PATH="$FAKEBIN:$BASE_PATH" FM_HOME="$HOME_DIR" "$TOOL" "$@" 2> "$TMP_ROOT/stderr")
+  _out=$(PATH="$FAKEBIN:$BASE_PATH" FM_ROOT_OVERRIDE="$HOME_DIR" FM_HOME="$HOME_DIR" "$TOOL" "$@" 2> "$TMP_ROOT/stderr")
   _code=$?
   printf -v "$__exit" '%s' "$_code"
   printf -v "$__out" '%s' "$_out"
@@ -175,7 +182,7 @@ run() {
 run_without_curl() {
   local __exit=$1 __out=$2 __err=$3 _out _code
   shift 3
-  _out=$(PATH="$NO_CURL_BIN" FM_HOME="$HOME_DIR" TYPESAFE_API_KEY="$KEY" "$TOOL" "$@" 2> "$TMP_ROOT/stderr")
+  _out=$(PATH="$NO_CURL_BIN" FM_ROOT_OVERRIDE="$HOME_DIR" FM_HOME="$HOME_DIR" TYPESAFE_API_KEY="$KEY" "$TOOL" "$@" 2> "$TMP_ROOT/stderr")
   _code=$?
   printf -v "$__exit" '%s' "$_code"
   printf -v "$__out" '%s' "$_out"
@@ -259,6 +266,17 @@ assert_equals '812' "$(jq -r '.input_tokens' "$ledger")" "ledger stores input to
 assert_equals 'req_fixture_123' "$(jq -r '."x-typesafe-request-id"' "$ledger")" "ledger stores the request id"
 assert_not_contains "$(cat "$ledger")" 'off-by-one in the pager' "ledger never stores brief text"
 pass "clear: one rule Choice request, key on the fd header only, spendPriority argmax over every candidate"
+
+ACCOUNT_ROOT="$TMP_ROOT/account-root"
+mkdir -p "$ACCOUNT_ROOT/state"
+printf 'schema=fm-secondmate-parent.v1\nroute=local\nparent_home=%s\n' "$ACCOUNT_ROOT" > "$HOME_DIR/.fm-secondmate-parent"
+reset_log
+write_response "$RESPONSE" rule_4 0.9
+TYPESAFE_API_KEY=$KEY run code out err "$BRIEF" --project secondmate-task
+rm -f "$HOME_DIR/.fm-secondmate-parent"
+assert_present "$ACCOUNT_ROOT/state/jev-usage.jsonl" "a local secondmate writes the installation account ledger"
+assert_equals 'secondmate-task' "$(jq -r '.task' "$ACCOUNT_ROOT/state/jev-usage.jsonl")" "the shared account record retains its originating task label"
+pass "primary and local-secondmate resolver calls share the installation account ledger"
 
 # --- rules are snapshotted and line output is injection-safe -------------------
 MUTATED_RULES="$TMP_ROOT/mutated-rules.json"
@@ -656,36 +674,69 @@ TYPESAFE_API_KEY=$KEY FAKE_QUOTA_FAIL=1 run code out err "$BRIEF"
 expect_code 0 "$code" "quota-axi failure exits 0"
 assert_contains "$out" '  status: error' "quota-axi failure is an error outcome"
 assert_contains "$out" '  reason: quota-axi --json failed' "quota-axi failure is named"
+assert_equals 'error' "$(tail -n 1 "$HOME_DIR/state/jev-usage.jsonl" | jq -r '.status')" "quota failure records the error outcome"
+assert_equals 'jev-1.13.0' "$(tail -n 1 "$HOME_DIR/state/jev-usage.jsonl" | jq -r '.model')" "quota failure preserves validated response metadata"
+assert_equals '812' "$(tail -n 1 "$HOME_DIR/state/jev-usage.jsonl" | jq -r '.input_tokens')" "quota failure preserves validated usage"
 pass "quota evidence comes from one quota-axi --json read, and its failure is an error outcome"
 
 # --- API and response failures are error outcomes, exit 0 ----------------------
 reset_log
+rm -f "$HOME_DIR/state/jev-usage.jsonl"
 run_without_curl code out err "$BRIEF"
 expect_code 0 "$code" "missing curl exits 0"
 assert_contains "$out" '  status: error' "missing curl is a structured error outcome"
 assert_contains "$out" '  reason: curl not installed' "missing curl is named in the TOON block"
 assert_contains "$err" 'dispatch-resolve: error (curl not installed)' "missing curl is also reported on stderr"
+assert_equals '1' "$(wc -l < "$HOME_DIR/state/jev-usage.jsonl" | tr -d '[:space:]')" "missing curl leaves one error record"
+assert_equals '["at","confidence","input_tokens","model","rule","status","task","x-typesafe-request-id"]' "$(jq -c 'keys' "$HOME_DIR/state/jev-usage.jsonl")" "partial calls retain the complete ledger schema"
+assert_equals '[null,null,null,null]' "$(jq -c '[.rule,.confidence,.model,.input_tokens]' "$HOME_DIR/state/jev-usage.jsonl")" "unavailable partial-call metadata is null"
 reset_log
+rm -f "$HOME_DIR/state/jev-usage.jsonl"
 TYPESAFE_API_KEY=$KEY FAKE_CURL_HTTP=429 run code out err "$BRIEF"
 expect_code 0 "$code" "http 429 exits 0"
 assert_contains "$out" '  status: error' "http 429 is an error outcome"
 assert_contains "$out" '  reason: http 429 after' "http status is reported"
 assert_contains "$err" 'dispatch-resolve: error (http 429' "error also goes to stderr"
+assert_equals '1' "$(wc -l < "$HOME_DIR/state/jev-usage.jsonl" | tr -d '[:space:]')" "HTTP failure leaves one error record"
+assert_equals 'req_fixture_123' "$(jq -r '."x-typesafe-request-id"' "$HOME_DIR/state/jev-usage.jsonl")" "HTTP failure retains the returned request id"
 reset_log
 TYPESAFE_API_KEY=$KEY FAKE_CURL_FAIL=1 run code out err "$BRIEF"
 expect_code 0 "$code" "curl failure exits 0"
 assert_contains "$out" '  reason: http 000 after' "transport failure reads as http 000"
+reset_log
+write_response "$RESPONSE" rule_4 0.9
+TYPESAFE_API_KEY=$KEY FAKE_CURL_REQUEST_ID=absent run code out err "$BRIEF"
+assert_contains "$out" '  status: error' "a missing request id is an error outcome"
+assert_contains "$out" '  reason: response has no single x-typesafe-request-id header' "a missing request id cannot be accepted"
 reset_log
 printf '%s\n' '{"model":"jev","answers":{}}' > "$RESPONSE"
 TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
 assert_contains "$out" '  reason: response is not a rule Choice answer' "a malformed answer is an error outcome"
 reset_log
 write_response "$RESPONSE" rule_4 0.9
-jq '.usage = "bad"' "$RESPONSE" > "$TMP_ROOT/malformed-usage.json"
+jq 'del(.usage)' "$RESPONSE" > "$TMP_ROOT/malformed-usage.json"
 mv "$TMP_ROOT/malformed-usage.json" "$RESPONSE"
 TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
-assert_contains "$out" '  status: error' "malformed usage is an error outcome"
-assert_contains "$out" '  reason: response is not a rule Choice answer' "malformed usage cannot break text rendering silently"
+assert_contains "$out" '  status: error' "missing usage is an error outcome"
+assert_contains "$out" '  reason: response is not a rule Choice answer' "missing usage cannot be accepted"
+reset_log
+write_response "$RESPONSE" rule_4 0.9
+jq '.usage.input_tokens = -1' "$RESPONSE" > "$TMP_ROOT/malformed-usage.json"
+mv "$TMP_ROOT/malformed-usage.json" "$RESPONSE"
+TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
+assert_contains "$out" '  reason: response is not a rule Choice answer' "negative token counts cannot be accepted"
+reset_log
+write_response "$RESPONSE" rule_4 0.9
+jq '.usage.output_tokens = 1.5' "$RESPONSE" > "$TMP_ROOT/malformed-usage.json"
+mv "$TMP_ROOT/malformed-usage.json" "$RESPONSE"
+TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
+assert_contains "$out" '  reason: response is not a rule Choice answer' "fractional token counts cannot be accepted"
+reset_log
+write_response "$RESPONSE" rule_4 0.9
+jq 'del(.model)' "$RESPONSE" > "$TMP_ROOT/malformed-model.json"
+mv "$TMP_ROOT/malformed-model.json" "$RESPONSE"
+TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
+assert_contains "$out" '  reason: response is not a rule Choice answer' "a missing answering model cannot be accepted"
 reset_log
 write_response "$RESPONSE" rule_4 0.9
 jq 'del(.answers.rule.probabilities.default)' "$RESPONSE" > "$TMP_ROOT/malformed-probabilities.json"
@@ -716,11 +767,11 @@ reset_log
 write_response "$RESPONSE" rule_9 0.9
 TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
 assert_contains "$out" '  status: error' "an unknown rule id is an error outcome"
-assert_contains "$out" '  reason: rule rule_9 is not in the rules file' "unknown rule id is named"
+assert_contains "$out" '  reason: response is not a rule Choice answer' "an unoffered rule id is a malformed Choice response"
 write_response "$RESPONSE" rule_0 0.9
 TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
 assert_contains "$out" '  status: error' "rule zero is an error outcome"
-assert_contains "$out" '  reason: rule rule_0 is not in the rules file' "rule zero cannot alias the final rule"
+assert_contains "$out" '  reason: response is not a rule Choice answer' "rule zero cannot alias the final rule"
 reset_log
 TYPESAFE_API_KEY=$KEY FAKE_CURL_HTTP=500 run code out err "$BRIEF"
 assert_contains "$out" '  status: error' "http 500 is a TOON error outcome"
