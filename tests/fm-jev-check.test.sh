@@ -260,6 +260,57 @@ test_disarm_refuses_a_symlinked_state_directory() {
   pass "Jev monitor disarm refuses symlinked state before cleanup"
 }
 
+test_disarm_preserves_state_when_a_child_artifact_is_unsafe() {
+  local kind home out status target
+  for kind in shim trust; do
+    home=$(make_home "disarm-unsafe-$kind")
+    out="$TMP_ROOT/disarm-unsafe-$kind/out"
+    target="$TMP_ROOT/disarm-unsafe-$kind/external"
+    printf '%s\n' '2026-09-10' > "$home/state/.jev-monitor-alias"
+    printf '%s\n' '{"monthly":{"period":"2026-09","alert":false},"daily":{"period":"2026-09-23","alert":false}}' > "$home/state/.jev-monitor-spend"
+    printf '%s\n' 'external' > "$target"
+    if [ "$kind" = shim ]; then
+      ln -s "$target" "$home/state/jev-monitor.check.sh"
+      printf '%s\n' 'trust' > "$home/state/jev-monitor.check-trust"
+    else
+      printf '%s\n' '#!/usr/bin/env bash' 'exit 0' > "$home/state/jev-monitor.check.sh"
+      chmod 0700 "$home/state/jev-monitor.check.sh"
+      ln -s "$target" "$home/state/jev-monitor.check-trust"
+    fi
+
+    status=0
+    FM_HOME="$home" "$CHECK" disarm >"$out" 2>&1 || status=$?
+    expect_code 1 "$status" "unsafe-$kind disarm exit"
+    assert_contains "$(cat "$out")" 'custom check is unsafe to remove' "unsafe-$kind disarm hid the unregister refusal"
+    assert_not_contains "$(cat "$out")" 'disarmed:' "unsafe-$kind disarm reported success"
+    assert_present "$home/state/.jev-monitor-alias" "unsafe-$kind disarm removed alias state"
+    assert_present "$home/state/.jev-monitor-spend" "unsafe-$kind disarm removed spend state"
+    assert_present "$home/state/jev-monitor.check.sh" "unsafe-$kind disarm removed the shim"
+    assert_present "$home/state/jev-monitor.check-trust" "unsafe-$kind disarm removed the trust binding"
+    assert_equals 'external' "$(cat "$target")" "unsafe-$kind disarm changed the symlink target"
+  done
+  pass "Jev monitor disarm preserves all state when either child artifact is unsafe"
+}
+
+test_disarm_removes_registered_monitor_state() {
+  local home out status
+  home=$(make_home disarm-success)
+  out="$TMP_ROOT/disarm-success/out"
+  FM_HOME="$home" "$CHECK" arm >/dev/null || fail "could not arm the successful disarm fixture"
+  printf '%s\n' '2026-09-10' > "$home/state/.jev-monitor-alias"
+  printf '%s\n' '{"monthly":{"period":"2026-09","alert":false},"daily":{"period":"2026-09-23","alert":false}}' > "$home/state/.jev-monitor-spend"
+
+  status=0
+  FM_HOME="$home" "$CHECK" disarm >"$out" 2>&1 || status=$?
+  expect_code 0 "$status" "registered monitor disarm exit"
+  assert_contains "$(cat "$out")" 'disarmed: state/jev-monitor.check.sh' "successful disarm was not reported"
+  assert_absent "$home/state/jev-monitor.check.sh" "successful disarm left the shim"
+  assert_absent "$home/state/jev-monitor.check-trust" "successful disarm left the trust binding"
+  assert_absent "$home/state/.jev-monitor-alias" "successful disarm left alias state"
+  assert_absent "$home/state/.jev-monitor-spend" "successful disarm left spend state"
+  pass "Jev monitor disarm removes the registration before its records"
+}
+
 test_alias_move_records_baseline_then_alerts_once
 test_spend_thresholds_use_the_per_home_resolver_ledger
 test_malformed_local_record_fails_closed
@@ -272,5 +323,7 @@ test_threshold_state_is_period_aware
 test_absent_key_never_calls_the_models_endpoint
 test_arm_registers_a_watcher_shim_without_running_the_check
 test_disarm_refuses_a_symlinked_state_directory
+test_disarm_preserves_state_when_a_child_artifact_is_unsafe
+test_disarm_removes_registered_monitor_state
 
 printf '# all fm-jev-check tests passed\n'

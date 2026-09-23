@@ -255,7 +255,10 @@ action_disarm() {
     printf 'fm-jev-check: refusing to disarm with unavailable state directory: %s\n' "$STATE" >&2
     return 1
   }
-  FM_HOME="$FM_HOME" "$UNREGISTER_BIN" "$CHECK_ID" >/dev/null 2>&1 || true
+  if ! FM_HOME="$FM_HOME" "$UNREGISTER_BIN" "$CHECK_ID" >/dev/null; then
+    printf 'fm-jev-check: could not unregister %s\n' "$CHECK_SHIM" >&2
+    return 1
+  fi
   rm -f -- "$ALIAS_RECORD" "$SPEND_RECORD"
   printf 'disarmed: state/%s.check.sh\n' "$CHECK_ID"
 }
