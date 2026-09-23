@@ -88,10 +88,6 @@ TS_TIMEOUT=5
 DEFAULT_WHEN="No listed rule applies to this task."
 
 die() { printf 'error: %s\n' "$1" >&2; exit 2; }
-no_rules() {
-  printf 'dispatch-resolve:\n  status: escalate\n  reason: no rules to match\n'
-  exit 0
-}
 usage() {
   awk '
     NR == 1 { next }
@@ -100,7 +96,56 @@ usage() {
   ' "$0"
 }
 
+append_ledger() {
+  local device record ledger state result
+  [ "${LEDGER_WRITTEN:-0}" -eq 0 ] || return 0
+  fm_pr_task_id_valid "$TASK_LABEL" || return 1
+  result=${RESULT:-}
+  [ -n "$result" ] || result='{}'
+  state="$FM_HOME/state"
+  ledger="$state/jev-usage.jsonl"
+  mkdir -p "$state" || return 1
+  [ -d "$state" ] && [ ! -L "$state" ] || return 1
+  record=$(jq -cn --argjson result "$result" --arg task "$TASK_LABEL" --arg status "${LEDGER_STATUS:-error}" --arg request_id "${REQUEST_ID:-}" --argjson at "$(date +%s)" '
+    {
+      at: $at,
+      task: $task,
+      status: $status,
+      rule: ($result.rule // null),
+      confidence: ($result.confidence // null),
+      model: ($result.model // null),
+      input_tokens: ($result.tokens.input_tokens // null),
+      "x-typesafe-request-id": (if $request_id == "" then null else $request_id end)
+    }') || return 1
+  device=$(fm_pr_file_device "$state") || return 1
+  if [ ! -e "$ledger" ] && [ ! -L "$ledger" ]; then
+    (umask 077; set -C; : > "$ledger") 2>/dev/null || :
+  fi
+  fm_pr_private_file_valid "$ledger" 600 "$device" || return 1
+  printf '%s\n' "$record" >> "$ledger" || return 1
+  LEDGER_WRITTEN=1
+}
+
+emit_error() {
+  local reason=$1
+  LEDGER_STATUS=error
+  if ! append_ledger; then
+    reason="$reason; could not append state/jev-usage.jsonl"
+  fi
+  echo "dispatch-resolve: error ($reason)" >&2
+  printf 'dispatch-resolve:\n  status: error\n  reason: %s\n' "$reason"
+  exit 0
+}
+
+no_rules() {
+  LEDGER_STATUS=escalate
+  append_ledger || emit_error "could not append state/jev-usage.jsonl"
+  printf 'dispatch-resolve:\n  status: escalate\n  reason: no rules to match\n'
+  exit 0
+}
+
 BRIEF='' PROJECT='' TASK_LABEL='' TASK_LABEL_VALID=0 RULES_PATH="$CONFIG/crew-dispatch.json" RULES=''
+RESULT='{}' REQUEST_ID='' LEDGER_WRITTEN=0 LEDGER_STATUS=error
 while [ $# -gt 0 ]; do
   case "$1" in
     --project) [ $# -ge 2 ] || die "--project needs a value"; PROJECT=$2; shift 2 ;;
@@ -131,9 +176,10 @@ if fm_pr_task_id_valid "$TASK_LABEL"; then
 else
   TASK_LABEL=unknown
 fi
+command -v jq >/dev/null 2>&1 || die "jq required"
+[ "$TASK_LABEL_VALID" -eq 1 ] || emit_error "could not derive task label from brief path"
 [ -e "$RULES_PATH" ] || [ -L "$RULES_PATH" ] || no_rules
 [ -r "$RULES_PATH" ] || die "rules file not readable: $RULES_PATH"
-command -v jq >/dev/null 2>&1 || die "jq required"
 RULES=$(mktemp) || die "mktemp failed"
 trap 'rm -f "$RULES"' EXIT
 cp "$RULES_PATH" "$RULES" || die "could not snapshot rules file: $RULES_PATH"
@@ -226,47 +272,6 @@ done < <(jq -r '
 
 RULE_COUNT=$(jq -r '(.rules // []) | length' "$RULES")
 
-emit_error() {
-  local reason=$1
-  LEDGER_STATUS=error
-  if [ "${RESOLUTION_STARTED:-0}" -eq 1 ] && ! append_ledger; then
-    reason="$reason; could not append state/jev-usage.jsonl"
-  fi
-  echo "dispatch-resolve: error ($reason)" >&2
-  printf 'dispatch-resolve:\n  status: error\n  reason: %s\n' "$reason"
-  exit 0
-}
-
-append_ledger() {
-  local device record ledger state result
-  [ "${LEDGER_WRITTEN:-0}" -eq 0 ] || return 0
-  fm_pr_task_id_valid "$TASK_LABEL" || return 1
-  result=${RESULT:-}
-  [ -n "$result" ] || result='{}'
-  state="$FM_HOME/state"
-  ledger="$state/jev-usage.jsonl"
-  mkdir -p "$state" || return 1
-  [ -d "$state" ] && [ ! -L "$state" ] || return 1
-  record=$(jq -cn --argjson result "$result" --arg task "$TASK_LABEL" --arg status "${LEDGER_STATUS:-error}" --arg request_id "${REQUEST_ID:-}" --argjson at "$(date +%s)" '
-    {
-      at: $at,
-      task: $task,
-      status: $status,
-      rule: ($result.rule // null),
-      confidence: ($result.confidence // null),
-      model: ($result.model // null),
-      input_tokens: ($result.tokens.input_tokens // null),
-      "x-typesafe-request-id": (if $request_id == "" then null else $request_id end)
-    }') || return 1
-  device=$(fm_pr_file_device "$state") || return 1
-  if [ ! -e "$ledger" ] && [ ! -L "$ledger" ]; then
-    (umask 077; set -C; : > "$ledger") 2>/dev/null || :
-  fi
-  fm_pr_private_file_valid "$ledger" 600 "$device" || return 1
-  printf '%s\n' "$record" >> "$ledger" || return 1
-  LEDGER_WRITTEN=1
-}
-
 if [ "$RULE_COUNT" -eq 0 ]; then
   no_rules
 fi
@@ -276,12 +281,6 @@ QUOTA=$(mktemp) || { rm -f "$RESP_FILE"; die "mktemp failed"; }
 HEADERS=$(mktemp) || { rm -f "$RULES" "$RESP_FILE" "$QUOTA"; die "mktemp failed"; }
 trap 'rm -f "$RULES" "$RESP_FILE" "$QUOTA" "$HEADERS"' EXIT
 LAT_MS=null
-REQUEST_ID=
-RESULT='{}'
-LEDGER_WRITTEN=0
-LEDGER_STATUS=error
-RESOLUTION_STARTED=1
-[ "$TASK_LABEL_VALID" -eq 1 ] || emit_error "could not derive task label from brief path"
 command -v curl >/dev/null 2>&1 || emit_error "curl not installed"
   REQUEST=$(jq -n --rawfile brief "$BRIEF" --arg project "$PROJECT" --arg model "$TS_MODEL" \
     --arg none_criterion "$DEFAULT_WHEN" --slurpfile rules "$RULES" '

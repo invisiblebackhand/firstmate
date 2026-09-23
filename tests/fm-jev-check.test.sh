@@ -33,6 +33,14 @@ printf 200
 SH
 chmod 0700 "$FAKEBIN/curl"
 
+cat > "$FAKEBIN/date" <<'SH'
+#!/usr/bin/env bash
+set -u
+[ "$#" -eq 1 ] && [ "$1" = +%s ] || exit 2
+printf '%s\n' "${FAKE_DATE_EPOCH:?}"
+SH
+chmod 0700 "$FAKEBIN/date"
+
 make_home() {
   local name=$1 home
   home="$TMP_ROOT/$name/home"
@@ -50,7 +58,7 @@ JSON
 run_check() {  # <home> <output> [<now-epoch>]
   local home=$1 out=$2 now=${3:-1760000000} status=0
   env PATH="$FAKEBIN:$PATH" FAKE_CURL_ARGS="$CURL_ARGS" FAKE_CURL_CALLS="$CALLS" FAKE_CURL_MODELS="$MODELS" \
-    FM_ROOT_OVERRIDE="$home" FM_HOME="$home" FM_JEV_CHECK_NOW="$now" "$CHECK" check >"$out" 2>&1 || status=$?
+    FAKE_DATE_EPOCH="$now" FM_ROOT_OVERRIDE="$home" FM_HOME="$home" "$CHECK" check >"$out" 2>&1 || status=$?
   expect_code 0 "$status" "Jev check exits"
 }
 
@@ -321,18 +329,17 @@ test_failed_first_arm_removes_only_the_created_shim() {
 }
 
 test_disarm_refuses_a_symlinked_state_directory() {
-  local home target link out status
-  home=$(make_home disarm-symlink)
+  local home target out status
+  home="$TMP_ROOT/disarm-symlink/home"
   target="$TMP_ROOT/disarm-symlink/target"
-  link="$TMP_ROOT/disarm-symlink/state-link"
   out="$TMP_ROOT/disarm-symlink/out"
-  mkdir -p "$target"
+  mkdir -p "$home" "$target"
   printf '%s\n' '2026-09-10' > "$target/.jev-monitor-alias"
   printf '%s\n' '{"monthly":{"period":"2026-09","alert":false},"daily":{"period":"2026-09-23","alert":false}}' > "$target/.jev-monitor-spend"
-  ln -s "$target" "$link"
+  ln -s "$target" "$home/state"
 
   status=0
-  FM_HOME="$home" FM_STATE_OVERRIDE="$link" "$CHECK" disarm >"$out" 2>&1 || status=$?
+  FM_HOME="$home" "$CHECK" disarm >"$out" 2>&1 || status=$?
   expect_code 1 "$status" "symlinked-state disarm exit"
   assert_contains "$(cat "$out")" 'refusing to disarm with unavailable state directory' "disarm did not report the unsafe state directory"
   assert_equals '2026-09-10' "$(cat "$target/.jev-monitor-alias")" "disarm followed the state symlink and removed alias state"

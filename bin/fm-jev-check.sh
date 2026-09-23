@@ -27,7 +27,7 @@ unset TYPESAFE_API_KEY
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 FM_HOME="${FM_HOME:-$FM_ROOT}"
-STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
+STATE="$FM_HOME/state"
 ALIAS_RECORD="$STATE/.jev-monitor-alias"
 SPEND_RECORD="$STATE/.jev-monitor-spend"
 CHECK_ID=jev-monitor
@@ -61,13 +61,6 @@ die_usage() {
   printf 'fm-jev-check: %s\n' "$1" >&2
   usage >&2
   exit 2
-}
-
-now_epoch() {
-  case "${FM_JEV_CHECK_NOW:-}" in
-    ''|*[!0-9]*) date +%s ;;
-    *) printf '%s\n' "$FM_JEV_CHECK_NOW" ;;
-  esac
 }
 
 record_read() {  # <path>
@@ -145,7 +138,7 @@ check_spend() {
   local ledger now flags alert_state previous finding
   ledger="$FM_HOME/state/jev-usage.jsonl"
   [ -f "$ledger" ] && [ ! -L "$ledger" ] || return
-  now=$(now_epoch)
+  now=$(date +%s)
   flags=$(jq -cser --argjson now "$now" --argjson price "$PRICE_PER_INPUT_TOKEN" '
     def integer: type == "number" and floor == .;
     def nullable($kind): . == null or type == $kind;
