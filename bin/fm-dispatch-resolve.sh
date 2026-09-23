@@ -43,8 +43,11 @@
 #   escalate  -> the rule requires captain approval, no candidate is rankable, or a genuine tie
 #   error     -> API, network, response, or quota-axi failure; decide as today
 #   Every outcome exits 0 so an intake is never blocked by this tool.
-#   Every opted-in resolution attempt appends one JSON object to the
-#   installation root's state/jev-usage.jsonl with only routing and usage metadata.
+#   Every opted-in resolution attempt appends one JSON object to the topmost
+#   reachable local Firstmate root's state/jev-usage.jsonl. Primary and local
+#   descendant homes share it; independent and remote-rooted homes do not.
+#   It is keyed by neither TypeSafe account nor API key, so different keys
+#   below one local root share the ledger and its local spend alerts.
 #   Exit 2 only for a usage or configuration error (unreadable brief, an
 #   existing unreadable rules file, malformed rules, or missing jq), which is
 #   actionable, never selected around.
@@ -223,7 +226,7 @@ emit_error() {
 }
 
 append_ledger() {
-  local account_home record ledger state result
+  local local_root record ledger state result
   [ "${LEDGER_WRITTEN:-0}" -eq 0 ] || return 0
   result=${RESULT:-}
   [ -n "$result" ] || result='{}'
@@ -231,8 +234,8 @@ append_ledger() {
     # shellcheck source=bin/fm-wake-lib.sh
     . "$SCRIPT_DIR/fm-wake-lib.sh"
   fi
-  account_home=$(fm_firstmate_root_home "$FM_HOME") || return 1
-  state="$account_home/state"
+  local_root=$(fm_firstmate_root_home "$FM_HOME") || return 1
+  state="$local_root/state"
   ledger="$state/jev-usage.jsonl"
   mkdir -p "$state" || return 1
   [ -d "$state" ] && [ ! -L "$state" ] || return 1
@@ -297,10 +300,16 @@ case "$REQUEST_ID" in
     emit_error "response has no single x-typesafe-request-id header"
     ;;
 esac
-jq -e --slurpfile rules "$RULES" '
+if response_metadata=$(jq -c '{
+    status: "error",
+    model: (if (.model | type) == "string" then .model else null end)
+  }' "$RESP_FILE" 2>/dev/null); then
+  RESULT=$response_metadata
+fi
+jq -e --arg expected_model "$TS_MODEL" --slurpfile rules "$RULES" '
     (($rules[0].rules | to_entries | map("rule_" + ((.key + 1) | tostring))) + ["default"] | sort) as $choices |
     (.answers.rule.choice) as $choice |
-    (.model | type) == "string" and (.model | length) > 0 and
+    (.model == $expected_model) and
     (.answers.rule.type == "choice") and
     ($choice | type) == "string" and
     (($choices | index($choice)) != null) and

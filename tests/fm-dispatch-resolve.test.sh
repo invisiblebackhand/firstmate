@@ -267,16 +267,16 @@ assert_equals 'req_fixture_123' "$(jq -r '."x-typesafe-request-id"' "$ledger")" 
 assert_not_contains "$(cat "$ledger")" 'off-by-one in the pager' "ledger never stores brief text"
 pass "clear: one rule Choice request, key on the fd header only, spendPriority argmax over every candidate"
 
-ACCOUNT_ROOT="$TMP_ROOT/account-root"
-mkdir -p "$ACCOUNT_ROOT/state"
-printf 'schema=fm-secondmate-parent.v1\nroute=local\nparent_home=%s\n' "$ACCOUNT_ROOT" > "$HOME_DIR/.fm-secondmate-parent"
+LOCAL_ROOT="$TMP_ROOT/local-root"
+mkdir -p "$LOCAL_ROOT/state"
+printf 'schema=fm-secondmate-parent.v1\nroute=local\nparent_home=%s\n' "$LOCAL_ROOT" > "$HOME_DIR/.fm-secondmate-parent"
 reset_log
 write_response "$RESPONSE" rule_4 0.9
 TYPESAFE_API_KEY=$KEY run code out err "$BRIEF" --project secondmate-task
 rm -f "$HOME_DIR/.fm-secondmate-parent"
-assert_present "$ACCOUNT_ROOT/state/jev-usage.jsonl" "a local secondmate writes the installation account ledger"
-assert_equals 'secondmate-task' "$(jq -r '.task' "$ACCOUNT_ROOT/state/jev-usage.jsonl")" "the shared account record retains its originating task label"
-pass "primary and local-secondmate resolver calls share the installation account ledger"
+assert_present "$LOCAL_ROOT/state/jev-usage.jsonl" "a local secondmate writes the local-root ledger"
+assert_equals 'secondmate-task' "$(jq -r '.task' "$LOCAL_ROOT/state/jev-usage.jsonl")" "the shared local record retains its originating task label"
+pass "primary and local-secondmate resolver calls share the local-root ledger"
 
 # --- rules are snapshotted and line output is injection-safe -------------------
 MUTATED_RULES="$TMP_ROOT/mutated-rules.json"
@@ -737,6 +737,18 @@ jq 'del(.model)' "$RESPONSE" > "$TMP_ROOT/malformed-model.json"
 mv "$TMP_ROOT/malformed-model.json" "$RESPONSE"
 TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
 assert_contains "$out" '  reason: response is not a rule Choice answer' "a missing answering model cannot be accepted"
+for returned_model in jev-latest jev-1.14.0; do
+  reset_log
+  write_response "$RESPONSE" rule_4 0.9
+  jq --arg model "$returned_model" '.model = $model' "$RESPONSE" > "$TMP_ROOT/wrong-model.json"
+  mv "$TMP_ROOT/wrong-model.json" "$RESPONSE"
+  TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
+  assert_contains "$out" '  status: error' "$returned_model is an error outcome"
+  assert_contains "$out" '  reason: response is not a rule Choice answer' "$returned_model cannot answer the pinned request"
+  assert_not_contains "$out" '  profile:' "$returned_model cannot route work"
+  assert_absent "$LOG/quota-axi.calls" "$returned_model is rejected before quota and routing"
+  assert_equals "$returned_model" "$(tail -n 1 "$HOME_DIR/state/jev-usage.jsonl" | jq -r '.model')" "$returned_model is retained in the error ledger"
+done
 reset_log
 write_response "$RESPONSE" rule_4 0.9
 jq 'del(.answers.rule.probabilities.default)' "$RESPONSE" > "$TMP_ROOT/malformed-probabilities.json"
