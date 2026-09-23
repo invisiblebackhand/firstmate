@@ -103,6 +103,8 @@ init_changed_fixture_repo() {
     fm-test-fixtures.test.sh \
     fm-cd-pretool-check.test.sh \
     fm-daemon.test.sh \
+    fm-dispatch-resolve.test.sh \
+    fm-jev-check.test.sh \
     fm-harness-adapter-instructions-live-e2e.test.sh \
     fm-harness-adapter-references.test.sh \
     fm-backend-herdr-smoke.test.sh \
@@ -132,6 +134,8 @@ init_changed_fixture_repo() {
   : >"$repo/bin/fm-procevent-quota.sh"
   : >"$repo/bin/fm-quota-axi-lib.sh"
   : >"$repo/bin/fm-quota-choose.sh"
+  : >"$repo/bin/fm-dispatch-resolve.sh"
+  : >"$repo/bin/fm-jev-check.sh"
   : >"$repo/bin/unmapped-source.sh"
   # A shared top-level test fixture read by two suites in different families,
   # beside a tests/ file nothing reads at all.
@@ -174,6 +178,33 @@ init_changed_fixture_repo() {
   git -C "$repo" init -q
   git -C "$repo" add .
   git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm baseline
+}
+
+test_jev_monitor_suite_registration() {
+  local tmp repo listed
+  listed=$("$RUNNER" --list --family standalone)
+  assert_contains "$listed" "tests/fm-dispatch-resolve.test.sh" \
+    "standalone family lost the dispatch resolver suite"
+  assert_contains "$listed" "tests/fm-jev-check.test.sh" \
+    "standalone family omits the Jev monitor suite"
+
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-run-jev-monitor.XXXXXX")
+  repo="$tmp/repo"
+  init_changed_fixture_repo "$repo"
+  printf '\n' >>"$repo/bin/fm-jev-check.sh"
+  listed=$(cd "$repo" && bin/fm-test-run.sh --list --changed --base HEAD)
+  [ "$listed" = "tests/fm-jev-check.test.sh" ] \
+    || { rm -rf "$tmp"; fail "Jev monitor source selected the wrong suite: $listed"; }
+
+  git -C "$repo" add bin/fm-jev-check.sh
+  git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm jev-monitor-change
+  printf '\n' >>"$repo/bin/fm-dispatch-resolve.sh"
+  listed=$(cd "$repo" && bin/fm-test-run.sh --list --changed --base HEAD)
+  [ "$listed" = "tests/fm-dispatch-resolve.test.sh" ] \
+    || { rm -rf "$tmp"; fail "dispatch resolver source selected the wrong suite: $listed"; }
+
+  rm -rf "$tmp"
+  pass "Jev monitor suite is family-registered and selected by its source"
 }
 
 # Build a repository with a primary checkout and one linked worktree, each
@@ -1740,6 +1771,7 @@ test_list_all_exact_suite_coverage
 test_family_selection
 test_single_script_selection
 test_changed_file_selection_is_conservative
+test_jev_monitor_suite_registration
 test_task_marker_refuses_the_primary_checkout
 test_changed_runner_surfaces_select_their_family
 test_shell_line_ending_policy_selects_runner_contract
