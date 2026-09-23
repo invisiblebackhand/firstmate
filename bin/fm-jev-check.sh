@@ -220,7 +220,7 @@ shim_content() {
 }
 
 action_arm() {
-  local home want temp device
+  local home want temp device shim_created=0
   mkdir -p "$STATE" || return 1
   [ -d "$STATE" ] && [ ! -L "$STATE" ] || return 1
   case "$FM_HOME" in
@@ -242,9 +242,10 @@ action_arm() {
       rm -f -- "$temp"
       return 1
     fi
+    shim_created=1
   fi
   if ! FM_HOME="$home" "$REGISTER_BIN" "$CHECK_ID" >/dev/null; then
-    rm -f -- "$CHECK_SHIM" "$CHECK_TRUST"
+    [ "$shim_created" -eq 0 ] || rm -f -- "$CHECK_SHIM"
     printf 'fm-jev-check: could not register %s\n' "$CHECK_SHIM" >&2
     return 1
   fi

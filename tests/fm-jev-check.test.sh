@@ -247,6 +247,45 @@ test_arm_registers_a_watcher_shim_without_running_the_check() {
   pass "Jev monitor arms through the registered custom-check contract"
 }
 
+test_failed_rearm_preserves_the_existing_registration() {
+  local home fake out status shim_before trust_before
+  home=$(make_home rearm-register-fail)
+  fake="$TMP_ROOT/rearm-register-fail/fakebin"
+  out="$TMP_ROOT/rearm-register-fail/out"
+  mkdir -p "$fake"
+  FM_HOME="$home" "$CHECK" arm >/dev/null || fail "could not create the existing registration fixture"
+  shim_before=$(cat "$home/state/jev-monitor.check.sh")
+  trust_before=$(cat "$home/state/jev-monitor.check-trust")
+  printf '%s\n' '#!/usr/bin/env bash' 'exit 1' > "$fake/mktemp"
+  chmod 0700 "$fake/mktemp"
+
+  status=0
+  env PATH="$fake:$PATH" FM_HOME="$home" "$CHECK" arm >"$out" 2>&1 || status=$?
+  expect_code 1 "$status" "failed rearm exit"
+  assert_contains "$(cat "$out")" 'could not register' "failed rearm did not report registration failure"
+  assert_equals "$shim_before" "$(cat "$home/state/jev-monitor.check.sh")" "failed rearm changed the existing shim"
+  assert_equals "$trust_before" "$(cat "$home/state/jev-monitor.check-trust")" "failed rearm changed the existing trust binding"
+  pass "a transient rearm failure preserves the existing registration"
+}
+
+test_failed_first_arm_removes_only_the_created_shim() {
+  local home target out status
+  home=$(make_home first-arm-register-fail)
+  target="$TMP_ROOT/first-arm-register-fail/external"
+  out="$TMP_ROOT/first-arm-register-fail/out"
+  printf '%s\n' 'external' > "$target"
+  ln -s "$target" "$home/state/jev-monitor.check-trust"
+
+  status=0
+  FM_HOME="$home" "$CHECK" arm >"$out" 2>&1 || status=$?
+  expect_code 1 "$status" "failed first arm exit"
+  assert_contains "$(cat "$out")" 'could not register' "failed first arm did not report registration failure"
+  assert_absent "$home/state/jev-monitor.check.sh" "failed first arm left its newly created shim"
+  [ -L "$home/state/jev-monitor.check-trust" ] || fail "failed first arm removed the pre-existing trust path"
+  assert_equals 'external' "$(cat "$target")" "failed first arm changed the trust symlink target"
+  pass "a failed first arm removes only the shim it created"
+}
+
 test_disarm_refuses_a_symlinked_state_directory() {
   local home target link out status
   home=$(make_home disarm-symlink)
@@ -329,6 +368,8 @@ test_daily_threshold_does_not_cross_utc_midnight
 test_threshold_state_is_period_aware
 test_absent_key_never_calls_the_models_endpoint
 test_arm_registers_a_watcher_shim_without_running_the_check
+test_failed_rearm_preserves_the_existing_registration
+test_failed_first_arm_removes_only_the_created_shim
 test_disarm_refuses_a_symlinked_state_directory
 test_disarm_preserves_state_when_a_child_artifact_is_unsafe
 test_disarm_removes_registered_monitor_state
