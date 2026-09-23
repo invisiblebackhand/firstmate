@@ -545,8 +545,44 @@ Firstmate passes its profile line unless it states a reason to override, such as
 
 The resolver and bootstrap copy an environment-provided key into a non-exported private variable and unset `TYPESAFE_API_KEY` before launching child processes, so the secret is absent from child environments.
 The resolver sends the key to `curl` only as a header read from a file descriptor, never on argv, and nothing prints, logs, or writes it.
-The resolver fixes the endpoint at `https://api.typesafe.ai`, model at `jev-latest`, confidence floor at 0.6, and request timeout at 5 seconds; `TYPESAFE_API_KEY` is its only resolver-specific environment setting.
+The resolver fixes the endpoint at `https://api.typesafe.ai`, model at `jev-1.13.0`, confidence floor at 0.6, and request timeout at 5 seconds; `TYPESAFE_API_KEY` is its only resolver-specific environment setting.
+Every validated resolver result appends one JSON line to the effective home's gitignored `state/jev-usage.jsonl` with `at` (Unix epoch seconds), `task` (the `--project` label), `status`, `rule`, `confidence`, the answering `model`, `input_tokens`, and `x-typesafe-request-id`.
+The ledger never contains brief text or credentials.
+It is per-home attribution, so it cannot represent TypeSafe account truth for consumers that do not write this ledger, including the current compact-adviser.
 The live rule-match evidence is recorded in [`verification/dispatch-resolve.md`](verification/dispatch-resolve.md).
+
+## Jev monitoring (bin/fm-jev-check.sh)
+
+`bin/fm-jev-check.sh check` is the one-line custom watcher check for the TypeSafe/Jev follow-up.
+It makes the unmetered `GET /v1/models` request and reports a changed `jev-latest.release_date`, with the required reminder to replay the dispatch tests before changing a pinned model.
+It also sums `state/jev-usage.jsonl` at the documented price of USD 0.042 per million input tokens and alerts when the local ledger reaches USD 10 in the current UTC month or USD 1 in the trailing 24 hours.
+The monitor records its last alias date and threshold state in gitignored `state/` files so an unchanged condition does not wake every polling cycle.
+Its spend alert is intentionally labeled as local-ledger attribution rather than an account-billing guarantee, because the TypeSafe console remains the account authority and compact-adviser does not currently record its usage.
+
+Arm it only in a home that should poll it:
+
+```sh
+bin/fm-jev-check.sh arm
+```
+
+Arming writes and registers `state/jev-monitor.check.sh` through `bin/fm-check-register.sh`, so the existing watcher polls it on its normal cadence.
+`bin/fm-jev-check.sh disarm` removes that shim, its trust binding, and the monitor records.
+The shipped check is not armed by default or by this repository.
+
+## Jev consumer contract
+
+This section is the single owner of the standard contract for any Jev consumer.
+
+1. Opt in only when a key is present, and leave the caller's ordinary path unchanged after one stderr line when it is absent.
+2. Keep the key in process memory or a file-descriptor header, never in argv, URLs, or logs.
+3. Pin a versioned model where behavior feeds a tuned threshold, and record the answering model on every call.
+4. Bound each request with a hard timeout of 2 seconds for interactive or hook paths and 5 seconds for command-line paths.
+5. Validate the complete answer shape before use, including the offered options, probabilities, confidence, and non-negative usage fields.
+6. Treat every API, timeout, malformed-response, or contradictory-response failure as the conservative path, with one log line.
+7. Do not retry interactive or hook work inside a call, and limit batch or command-line retries to two 429 or 529 retries that honor `retry-after`.
+8. Append every metered result to a private durable usage ledger with no request contents or credentials.
+9. Keep Jev advisory by default, and allow it to gate only toward the conservative outcome.
+10. Tune each threshold on that operation's labeled data with about a 0.1 margin, and record the model version used for that tuning.
 
 ## Toolchain
 

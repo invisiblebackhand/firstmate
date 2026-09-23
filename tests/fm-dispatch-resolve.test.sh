@@ -2,8 +2,9 @@
 # Behavior tests for bin/fm-dispatch-resolve.sh.
 #
 # Drives the public argv and environment interface with a fake curl on PATH
-# that records argv, the request body it read from stdin, and the header it
-# read from file descriptor 3, and answers with a canned typesafe.ai response.
+# that records argv, the request body it read from stdin, the response headers,
+# and the header it read from file descriptor 3, then answers with a canned
+# typesafe.ai response.
 # A fake quota-axi serves the selected schema-5 fixture. No case touches the
 # network, and the absent-key case proves the tool makes no call
 # at all.
@@ -107,8 +108,8 @@ JSON
 
 cat > "$FAKEBIN/curl" <<'SH'
 #!/usr/bin/env bash
-# Fake curl: records argv (minus the -o target), the stdin body, and the header
-# read from fd 3, then answers with FAKE_CURL_RESPONSE and FAKE_CURL_HTTP.
+# Fake curl: records argv (minus output targets), the stdin body, response
+# headers, and the header read from fd 3, then answers with canned output.
 set -u
 if [ -n "${TYPESAFE_API_KEY+x}" ] || [ -n "${TYPESAFE_API_KEY_PRIVATE+x}" ]; then
   printf 'curl:secret-present\n' >> "${CHILD_ENV_LOG:?}"
@@ -119,6 +120,7 @@ out=''
 while [ $# -gt 0 ]; do
   case "$1" in
     -o) out=$2; shift 2 ;;
+    -D) printf '%s\n' "x-typesafe-request-id: req_fixture_123" > "$2"; shift 2 ;;
     *) printf '%s\n' "$1" >> "${FAKE_CURL_LOG:?}/argv"; shift ;;
   esac
 done
@@ -215,6 +217,7 @@ pass "TYPESAFE_API_KEY= in .env activates the tool; environment and config overr
 
 # --- clear: request shape, secret handling, argmax --------------------------
 reset_log
+rm -f "$HOME_DIR/state/jev-usage.jsonl"
 write_response "$RESPONSE" rule_4 0.9
 TYPESAFE_API_KEY=$KEY run code out err "$BRIEF" --project pager
 expect_code 0 "$code" "clear exits 0"
@@ -234,7 +237,7 @@ assert_contains "$argv" '@/dev/fd/3' "the header is read from a file descriptor"
 assert_equals "Authorization: Bearer $KEY" "$(cat "$LOG/header")" "curl receives the bearer header on fd 3"
 assert_equals $'curl:clean\nquota-axi:clean' "$(cat "$LOG/child-env")" "the API key is absent from every child environment"
 body=$(cat "$LOG/body")
-assert_equals 'jev-latest' "$(jq -r .model <<<"$body")" "default model is jev-latest"
+assert_equals 'jev-1.13.0' "$(jq -r .model <<<"$body")" "default model is pinned to the verified Jev release"
 assert_equals 'pager' "$(jq -r .state.task.project <<<"$body")" "project rides in the state"
 assert_contains "$(jq -r .state.task.brief <<<"$body")" 'off-by-one in the pager' "the whole brief rides in the state"
 assert_equals '["rule"]' "$(jq -c '.questions | keys' <<<"$body")" "only the rule Choice is asked"
@@ -244,6 +247,17 @@ assert_equals 'A simple bug fix with a stated root cause.' "$(jq -r '.questions.
 assert_not_contains "$body" 'SECRET-WHY-TEXT' "why text never leaves the machine"
 assert_not_contains "$body" 'spendPriority' "quota never leaves the machine"
 assert_not_contains "$body" 'cursor-grok' "use profiles never leave the machine"
+ledger="$HOME_DIR/state/jev-usage.jsonl"
+assert_present "$ledger" "a resolved call appends the Jev usage ledger"
+assert_equals '1' "$(wc -l < "$ledger" | tr -d '[:space:]')" "one resolver call produces one ledger line"
+assert_equals 'pager' "$(jq -r '.task' "$ledger")" "ledger stores the project as its task label"
+assert_equals 'clear' "$(jq -r '.status' "$ledger")" "ledger stores the resolved status"
+assert_equals 'rule_4' "$(jq -r '.rule' "$ledger")" "ledger stores the selected rule"
+assert_equals '0.9' "$(jq -r '.confidence' "$ledger")" "ledger stores the confidence"
+assert_equals 'jev-1.13.0' "$(jq -r '.model' "$ledger")" "ledger stores the model that answered"
+assert_equals '812' "$(jq -r '.input_tokens' "$ledger")" "ledger stores input token usage"
+assert_equals 'req_fixture_123' "$(jq -r '."x-typesafe-request-id"' "$ledger")" "ledger stores the request id"
+assert_not_contains "$(cat "$ledger")" 'off-by-one in the pager' "ledger never stores brief text"
 pass "clear: one rule Choice request, key on the fd header only, spendPriority argmax over every candidate"
 
 # --- rules are snapshotted and line output is injection-safe -------------------
