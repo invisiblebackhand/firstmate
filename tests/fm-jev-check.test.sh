@@ -90,9 +90,9 @@ test_spend_thresholds_use_the_per_home_resolver_ledger() {
   out="$TMP_ROOT/spend/out"
   ledger="$home/state/jev-usage.jsonl"
   write_models 2026-09-10
-  printf '%s\n' '{"at":1760000000,"task":"fixture","status":"clear","reason":null,"rule":"rule_1","confidence":0.9,"model":"jev-1.13.0","input_tokens":25000000,"x-typesafe-request-id":"req_fixture"}' > "$ledger"
+  printf '%s\n' '{"at":1760000000,"task":"fixture","status":"error","reason":"response is not a rule Choice answer","rule":null,"confidence":null,"model":"jev-1.13.0","input_tokens":25000000,"x-typesafe-request-id":"req_fixture"}' > "$ledger"
   run_check "$home" "$out"
-  assert_contains "$(cat "$out")" 'Jev spend alert: per-home resolver ledger UTC calendar day 1.05 USD reaches the 1 USD daily threshold' "the daily threshold was not calculated from fixture tokens"
+  assert_contains "$(cat "$out")" 'Jev spend alert: per-home resolver ledger UTC calendar day 1.05 USD reaches the 1 USD daily threshold' "the daily threshold did not count valid metering from a rejected response"
   assert_not_contains "$(cat "$out")" 'month-to-date' "the month threshold fired below 10 USD"
   run_check "$home" "$out"
   [ ! -s "$out" ] || fail "an unchanged spend threshold repeated: $(cat "$out")"

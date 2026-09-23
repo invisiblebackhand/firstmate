@@ -87,7 +87,18 @@ TS_BASE=https://api.typesafe.ai
 TS_TIMEOUT=5
 DEFAULT_WHEN="No listed rule applies to this task."
 
-die() { printf 'error: %s\n' "$1" >&2; exit 2; }
+die() {
+  local reason=$1
+  if [ "${LEDGER_READY:-0}" -eq 1 ]; then
+    LEDGER_STATUS=error
+    LEDGER_REASON=$reason
+    if ! append_ledger; then
+      reason="$reason; could not append state/jev-usage.jsonl"
+    fi
+  fi
+  printf 'error: %s\n' "$reason" >&2
+  exit 2
+}
 usage() {
   awk '
     NR == 1 { next }
@@ -97,7 +108,7 @@ usage() {
 }
 
 append_ledger() {
-  local device record ledger state result
+  local at device record ledger state result
   [ "${LEDGER_WRITTEN:-0}" -eq 0 ] || return 0
   fm_pr_task_id_valid "$TASK_LABEL" || return 1
   result=${RESULT:-}
@@ -106,18 +117,26 @@ append_ledger() {
   ledger="$state/jev-usage.jsonl"
   mkdir -p "$state" || return 1
   [ -d "$state" ] && [ ! -L "$state" ] || return 1
-  record=$(jq -cn --argjson result "$result" --arg task "$TASK_LABEL" --arg status "${LEDGER_STATUS:-error}" --arg reason "${LEDGER_REASON:-}" --arg request_id "${REQUEST_ID:-}" --argjson at "$(date +%s)" '
-    {
-      at: $at,
-      task: $task,
-      status: $status,
-      reason: (if $reason == "" then null else $reason end),
-      rule: ($result.rule // null),
-      confidence: ($result.confidence // null),
-      model: ($result.model // null),
-      input_tokens: ($result.tokens.input_tokens // null),
-      "x-typesafe-request-id": (if $request_id == "" then null else $request_id end)
-    }') || return 1
+  at=$(date +%s) || return 1
+  case "$at" in ''|*[!0-9]*) return 1 ;; esac
+  if command -v jq >/dev/null 2>&1; then
+    record=$(jq -cn --argjson result "$result" --arg task "$TASK_LABEL" --arg status "${LEDGER_STATUS:-error}" --arg reason "${LEDGER_REASON:-}" --arg request_id "${REQUEST_ID:-}" --argjson at "$at" '
+      {
+        at: $at,
+        task: $task,
+        status: $status,
+        reason: (if $reason == "" then null else $reason end),
+        rule: ($result.rule // null),
+        confidence: ($result.confidence // null),
+        model: ($result.model // null),
+        input_tokens: ($result.tokens.input_tokens // null),
+        "x-typesafe-request-id": (if $request_id == "" then null else $request_id end)
+      }') || return 1
+  elif [ "${LEDGER_STATUS:-}" = error ] && [ "${LEDGER_REASON:-}" = "jq required" ] && [ "$result" = '{}' ]; then
+    printf -v record '{"at":%s,"task":"%s","status":"error","reason":"jq required","rule":null,"confidence":null,"model":null,"input_tokens":null,"x-typesafe-request-id":null}' "$at" "$TASK_LABEL"
+  else
+    return 1
+  fi
   device=$(fm_pr_file_device "$state") || return 1
   if [ ! -e "$ledger" ] && [ ! -L "$ledger" ]; then
     (umask 077; set -C; : > "$ledger") 2>/dev/null || :
@@ -130,7 +149,7 @@ append_ledger() {
 emit_error() {
   local reason=$1
   LEDGER_STATUS=error
-  LEDGER_REASON=
+  LEDGER_REASON=$reason
   if ! append_ledger; then
     reason="$reason; could not append state/jev-usage.jsonl"
   fi
@@ -148,7 +167,7 @@ no_rules() {
 }
 
 BRIEF='' PROJECT='' TASK_LABEL='' RULES_PATH="$CONFIG/crew-dispatch.json" RULES=''
-RESULT='{}' REQUEST_ID='' LEDGER_WRITTEN=0 LEDGER_STATUS=error LEDGER_REASON=''
+RESULT='{}' REQUEST_ID='' LEDGER_READY=0 LEDGER_WRITTEN=0 LEDGER_STATUS=error LEDGER_REASON=''
 while [ $# -gt 0 ]; do
   case "$1" in
     --project) [ $# -ge 2 ] || die "--project needs a value"; PROJECT=$2; shift 2 ;;
@@ -176,11 +195,13 @@ case "$BRIEF" in
 esac
 BRIEF_PARENT=$(CDPATH='' cd -- "$BRIEF_PARENT" 2>/dev/null && pwd -P) || BRIEF_PARENT=
 TASK_LABEL=${BRIEF_PARENT##*/}
-command -v jq >/dev/null 2>&1 || die "jq required"
 if ! fm_pr_task_id_valid "$TASK_LABEL"; then
   TASK_LABEL=unknown
+  LEDGER_READY=1
   emit_error "could not derive task label from brief path"
 fi
+LEDGER_READY=1
+command -v jq >/dev/null 2>&1 || die "jq required"
 [ -e "$RULES_PATH" ] || [ -L "$RULES_PATH" ] || no_rules
 [ -r "$RULES_PATH" ] || die "rules file not readable: $RULES_PATH"
 RULES=$(mktemp) || die "mktemp failed"
@@ -309,18 +330,26 @@ command -v curl >/dev/null 2>&1 || emit_error "curl not installed"
   LAT_MS=$(( T1 - T0 ))
   REQUEST_ID=$(awk 'tolower($1) == "x-typesafe-request-id:" { sub(/^[^:]*:[[:space:]]*/, ""); sub(/\r$/, ""); print }' "$HEADERS")
   [ "$HTTP" = 200 ] || emit_error "http $HTTP after ${LAT_MS} ms: $(head -c 200 "$RESP_FILE" 2>/dev/null | tr '\n' ' ')"
+if response_metadata=$(jq -c '
+    {
+      status: "error",
+      model: (if type == "object" and (.model | type) == "string" then .model else null end),
+      tokens: {
+        input_tokens: (if type == "object" and (.usage | type) == "object"
+          and (.usage.input_tokens | type) == "number"
+          and (.usage.input_tokens | floor) == .usage.input_tokens
+          and .usage.input_tokens >= 0
+          then .usage.input_tokens else null end)
+      }
+    }' "$RESP_FILE" 2>/dev/null); then
+  RESULT=$response_metadata
+fi
 case "$REQUEST_ID" in
   ''|*$'\n'*|*$'\r'*)
     REQUEST_ID=
     emit_error "response has no single x-typesafe-request-id header"
     ;;
 esac
-if response_metadata=$(jq -c '{
-    status: "error",
-    model: (if (.model | type) == "string" then .model else null end)
-  }' "$RESP_FILE" 2>/dev/null); then
-  RESULT=$response_metadata
-fi
 jq -e --arg expected_model "$TS_MODEL" --slurpfile rules "$RULES" '
     (($rules[0].rules | to_entries | map("rule_" + ((.key + 1) | tostring))) + ["default"] | sort) as $choices |
     (.answers.rule.choice) as $choice |

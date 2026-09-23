@@ -20,6 +20,7 @@ TMP_ROOT=$(fm_test_tmproot fm-dispatch-resolve)
 HOME_DIR="$TMP_ROOT/home"
 FAKEBIN=$(fm_fakebin "$TMP_ROOT")
 NO_CURL_BIN="$TMP_ROOT/no-curl-bin"
+NO_JQ_BIN="$TMP_ROOT/no-jq-bin"
 LOG="$TMP_ROOT/log"
 BRIEF_DIR="$TMP_ROOT/data/pager-task"
 BRIEF="$BRIEF_DIR/brief.md"
@@ -27,9 +28,12 @@ BASE_RULES="$TMP_ROOT/rules.json"
 RULES="$HOME_DIR/config/crew-dispatch.json"
 QUOTA="$TMP_ROOT/quota.json"
 BASE_PATH=$PATH
-mkdir -p "$HOME_DIR/config" "$LOG" "$NO_CURL_BIN" "$BRIEF_DIR"
+mkdir -p "$HOME_DIR/config" "$LOG" "$NO_CURL_BIN" "$NO_JQ_BIN" "$BRIEF_DIR"
 for command_name in bash chmod cp date dirname jq mkdir mktemp rm stat uname; do
   ln -s "$(command -v "$command_name")" "$NO_CURL_BIN/$command_name"
+done
+for command_name in bash chmod cp date dirname mkdir mktemp rm stat uname; do
+  ln -s "$(command -v "$command_name")" "$NO_JQ_BIN/$command_name"
 done
 
 cat > "$BRIEF" <<'MD'
@@ -207,6 +211,16 @@ run_without_curl() {
   local __exit=$1 __out=$2 __err=$3 _out _code
   shift 3
   _out=$(PATH="$NO_CURL_BIN" FM_ROOT_OVERRIDE="$HOME_DIR" FM_HOME="$HOME_DIR" TYPESAFE_API_KEY="$KEY" "$TOOL" "$@" 2> "$TMP_ROOT/stderr")
+  _code=$?
+  printf -v "$__exit" '%s' "$_code"
+  printf -v "$__out" '%s' "$_out"
+  printf -v "$__err" '%s' "$(cat "$TMP_ROOT/stderr")"
+}
+
+run_without_jq() {
+  local __exit=$1 __out=$2 __err=$3 _out _code
+  shift 3
+  _out=$(PATH="$NO_JQ_BIN" FM_ROOT_OVERRIDE="$HOME_DIR" FM_HOME="$HOME_DIR" TYPESAFE_API_KEY="$KEY" "$TOOL" "$@" 2> "$TMP_ROOT/stderr")
   _code=$?
   printf -v "$__exit" '%s' "$_code"
   printf -v "$__out" '%s' "$_out"
@@ -839,9 +853,25 @@ expect_code 0 "$code" "curl failure exits 0"
 assert_contains "$out" '  reason: http 000 after' "transport failure reads as http 000"
 reset_log
 write_response "$RESPONSE" rule_4 0.9
+rm -f "$HOME_DIR/state/jev-usage.jsonl"
 TYPESAFE_API_KEY=$KEY FAKE_CURL_REQUEST_ID=absent run code out err "$BRIEF"
 assert_contains "$out" '  status: error' "a missing request id is an error outcome"
 assert_contains "$out" '  reason: response has no single x-typesafe-request-id header' "a missing request id cannot be accepted"
+assert_equals 'jev-1.13.0' "$(jq -r '.model' "$HOME_DIR/state/jev-usage.jsonl")" "a missing request id discarded the answering model"
+assert_equals '812' "$(jq -r '.input_tokens' "$HOME_DIR/state/jev-usage.jsonl")" "a missing request id discarded valid metering"
+assert_equals 'null' "$(jq -r '."x-typesafe-request-id"' "$HOME_DIR/state/jev-usage.jsonl")" "a missing request id was not recorded as null"
+reset_log
+rm -f "$HOME_DIR/state/jev-usage.jsonl"
+write_response "$RESPONSE" rule_4 0.9
+jq 'del(.answers.rule.choice)' "$RESPONSE" > "$TMP_ROOT/rejected-choice.json"
+mv "$TMP_ROOT/rejected-choice.json" "$RESPONSE"
+TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
+assert_contains "$out" '  reason: response is not a rule Choice answer' "an invalid Choice response was not rejected"
+assert_equals '1' "$(wc -l < "$HOME_DIR/state/jev-usage.jsonl" | tr -d '[:space:]')" "a rejected metered response did not produce exactly one ledger record"
+assert_equals 'error' "$(jq -r '.status' "$HOME_DIR/state/jev-usage.jsonl")" "a rejected metered response was not recorded as an error"
+assert_equals 'jev-1.13.0' "$(jq -r '.model' "$HOME_DIR/state/jev-usage.jsonl")" "a rejected metered response discarded the answering model"
+assert_equals '812' "$(jq -r '.input_tokens' "$HOME_DIR/state/jev-usage.jsonl")" "a rejected metered response discarded valid input usage"
+assert_equals 'req_fixture_123' "$(jq -r '."x-typesafe-request-id"' "$HOME_DIR/state/jev-usage.jsonl")" "a rejected metered response discarded its request id"
 reset_log
 printf '%s\n' '{"model":"jev","answers":{}}' > "$RESPONSE"
 TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
@@ -923,11 +953,35 @@ TYPESAFE_API_KEY=$KEY FAKE_CURL_HTTP=500 run code out err "$BRIEF"
 assert_contains "$out" '  status: error' "http 500 is a TOON error outcome"
 pass "API, transport, and response failures are error outcomes with exit 0"
 
-# --- configuration errors exit 2 and select nothing ----------------------------------
+# --- configuration errors exit 2 without selecting -----------------------------------
 reset_log
+rm -f "$HOME_DIR/state/jev-usage.jsonl"
+cp "$BASE_RULES" "$RULES"
+run_without_jq code out err "$BRIEF"
+expect_code 2 "$code" "missing jq exits 2"
+assert_contains "$err" 'jq required' "missing jq is named"
+assert_equals '1' "$(wc -l < "$HOME_DIR/state/jev-usage.jsonl" | tr -d '[:space:]')" "missing jq did not produce exactly one ledger record"
+assert_equals 'error' "$(jq -r '.status' "$HOME_DIR/state/jev-usage.jsonl")" "missing jq was not recorded as an error"
+assert_equals 'jq required' "$(jq -r '.reason' "$HOME_DIR/state/jev-usage.jsonl")" "missing jq ledger record omitted its reason"
+
+reset_log
+rm -f "$HOME_DIR/state/jev-usage.jsonl"
+printf '%s\n' '{"rules":[' > "$RULES"
+TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
+expect_code 2 "$code" "malformed rules exit 2"
+assert_contains "$err" 'not JSON' "malformed rules are named"
+assert_equals '1' "$(wc -l < "$HOME_DIR/state/jev-usage.jsonl" | tr -d '[:space:]')" "malformed rules did not produce exactly one ledger record"
+assert_equals 'error' "$(jq -r '.status' "$HOME_DIR/state/jev-usage.jsonl")" "malformed rules were not recorded as an error"
+assert_contains "$(jq -r '.reason' "$HOME_DIR/state/jev-usage.jsonl")" 'malformed rules file:' "malformed rules ledger record omitted its reason"
+assert_absent "$LOG/argv" "malformed rules reached the network"
+pass "post-boundary configuration failures append one error record"
+
+reset_log
+rm -f "$HOME_DIR/state/jev-usage.jsonl"
 TYPESAFE_API_KEY=$KEY run code out err
 expect_code 2 "$code" "missing brief exits 2"
 assert_contains "$err" 'brief file required' "missing brief is named"
+assert_absent "$HOME_DIR/state/jev-usage.jsonl" "a pre-boundary missing brief created a ledger record"
 rm -f "$RULES"
 ln -s "$TMP_ROOT/missing-rules-target.json" "$RULES"
 TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
