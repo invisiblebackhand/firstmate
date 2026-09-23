@@ -21,12 +21,13 @@ HOME_DIR="$TMP_ROOT/home"
 FAKEBIN=$(fm_fakebin "$TMP_ROOT")
 NO_CURL_BIN="$TMP_ROOT/no-curl-bin"
 LOG="$TMP_ROOT/log"
-BRIEF="$TMP_ROOT/brief.md"
+BRIEF_DIR="$TMP_ROOT/data/pager-task"
+BRIEF="$BRIEF_DIR/brief.md"
 BASE_RULES="$TMP_ROOT/rules.json"
 RULES="$HOME_DIR/config/crew-dispatch.json"
 QUOTA="$TMP_ROOT/quota.json"
 BASE_PATH=$PATH
-mkdir -p "$HOME_DIR/config" "$LOG" "$NO_CURL_BIN"
+mkdir -p "$HOME_DIR/config" "$LOG" "$NO_CURL_BIN" "$BRIEF_DIR"
 for command_name in bash chmod cp date dirname jq mkdir mktemp rm stat uname; do
   ln -s "$(command -v "$command_name")" "$NO_CURL_BIN/$command_name"
 done
@@ -273,7 +274,7 @@ assert_present "$ledger" "a resolved call appends the Jev usage ledger"
 assert_equals '600' "$(fm_pr_file_mode "$ledger")" "a resolved call creates a private Jev usage ledger"
 assert_equals '1' "$(fm_pr_file_link_count "$ledger")" "a resolved call creates a single-link Jev usage ledger"
 assert_equals '1' "$(wc -l < "$ledger" | tr -d '[:space:]')" "one resolver call produces one ledger line"
-assert_equals 'pager' "$(jq -r '.task' "$ledger")" "ledger stores the project as its task label"
+assert_equals 'pager-task' "$(jq -r '.task' "$ledger")" "ledger stores the brief parent task ID"
 assert_equals 'clear' "$(jq -r '.status' "$ledger")" "ledger stores the resolved status"
 assert_equals 'rule_4' "$(jq -r '.rule' "$ledger")" "ledger stores the selected rule"
 assert_equals '0.9' "$(jq -r '.confidence' "$ledger")" "ledger stores the confidence"
@@ -282,6 +283,20 @@ assert_equals '812' "$(jq -r '.input_tokens' "$ledger")" "ledger stores input to
 assert_equals 'req_fixture_123' "$(jq -r '."x-typesafe-request-id"' "$ledger")" "ledger stores the request id"
 assert_not_contains "$(cat "$ledger")" 'off-by-one in the pager' "ledger never stores brief text"
 pass "clear: one rule Choice request, key on the fd header only, spendPriority argmax over every candidate"
+
+NO_PROJECT_BRIEF="$TMP_ROOT/data/no-project-task/brief.md"
+mkdir -p "${NO_PROJECT_BRIEF%/*}"
+cp "$BRIEF" "$NO_PROJECT_BRIEF"
+rm -f "$HOME_DIR/state/jev-usage.jsonl"
+reset_log
+write_response "$RESPONSE" rule_4 0.9
+TYPESAFE_API_KEY=$KEY run code out err "$NO_PROJECT_BRIEF"
+expect_code 0 "$code" "no-project resolver exits"
+assert_contains "$out" '  status: clear' "omitting --project changed the resolver outcome"
+assert_equals '' "$(jq -r .state.task.project "$LOG/body")" "omitting --project did not leave project optional"
+assert_equals 'no-project-task' "$(jq -r '.task' "$HOME_DIR/state/jev-usage.jsonl")" "no-project ledger omitted the brief parent task ID"
+assert_equals 'clear' "$(jq -r '.status' "$HOME_DIR/state/jev-usage.jsonl")" "no-project ledger did not retain the outcome"
+pass "a resolver call without --project records its brief parent task ID"
 
 PARENT_HOME="$TMP_ROOT/parent-home"
 mkdir -p "$PARENT_HOME/state"
@@ -293,7 +308,7 @@ TYPESAFE_API_KEY=$KEY run code out err "$BRIEF" --project secondmate-task
 rm -f "$HOME_DIR/.fm-secondmate-parent"
 assert_present "$HOME_DIR/state/jev-usage.jsonl" "a local secondmate writes its own resolver ledger"
 assert_absent "$PARENT_HOME/state/jev-usage.jsonl" "a local secondmate wrote its parent's resolver ledger"
-assert_equals 'secondmate-task' "$(jq -r '.task' "$HOME_DIR/state/jev-usage.jsonl")" "the per-home record retains its task label"
+assert_equals 'pager-task' "$(jq -r '.task' "$HOME_DIR/state/jev-usage.jsonl")" "the per-home record retains its brief parent task ID"
 pass "local-secondmate resolver calls stay in their own home ledger"
 
 # --- concurrent first writes preserve every record --------------------------
@@ -302,9 +317,12 @@ FIRST_WRITE_BARRIER="$TMP_ROOT/first-write-barrier"
 mkdir -p "$FIRST_WRITE_BARRIER"
 first_write_pids=()
 for first_write_id in 1 2 3 4; do
+  first_write_brief="$TMP_ROOT/data/first-write-$first_write_id/brief.md"
+  mkdir -p "${first_write_brief%/*}"
+  cp "$BRIEF" "$first_write_brief"
   PATH="$FAKEBIN:$BASE_PATH" FM_ROOT_OVERRIDE="$HOME_DIR" FM_HOME="$HOME_DIR" TYPESAFE_API_KEY="$KEY" \
     FAKE_QUOTA_BARRIER_DIR="$FIRST_WRITE_BARRIER" FAKE_QUOTA_BARRIER_COUNT=4 \
-    "$TOOL" "$BRIEF" --project "first-write-$first_write_id" \
+    "$TOOL" "$first_write_brief" --project "project-$first_write_id" \
     > "$TMP_ROOT/first-write-$first_write_id.out" 2> "$TMP_ROOT/first-write-$first_write_id.err" &
   first_write_pids+=("$!")
 done

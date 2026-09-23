@@ -36,7 +36,7 @@ CHECK_TRUST="$STATE/$CHECK_ID.check-trust"
 REGISTER_BIN="$SCRIPT_DIR/fm-check-register.sh"
 UNREGISTER_BIN="$SCRIPT_DIR/fm-check-unregister.sh"
 TS_BASE=https://api.typesafe.ai
-TS_TIMEOUT=5
+TS_TIMEOUT=2
 PRICE_PER_INPUT_TOKEN=0.000000042
 
 # shellcheck source=bin/fm-env-lib.sh
@@ -154,7 +154,8 @@ check_spend() {
       has("at") and has("task") and has("status") and has("rule") and has("confidence") and
       has("model") and has("input_tokens") and has("x-typesafe-request-id") and
       (.at | integer) and .at >= 0 and
-      (.task | type) == "string" and (.status | type) == "string" and
+      ((.task | type) == "string" and (.task | test("^[A-Za-z0-9_-][A-Za-z0-9._-]*$"))) and
+      (.status | type) == "string" and
       (.rule | nullable("string")) and
       (.confidence == null or ((.confidence | type) == "number" and .confidence >= 0 and .confidence <= 1)) and
       (.model | nullable("string")) and

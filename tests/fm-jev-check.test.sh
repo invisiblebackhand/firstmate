@@ -13,10 +13,12 @@ TMP_ROOT=$(fm_test_tmproot fm-jev-check)
 FAKEBIN=$(fm_fakebin "$TMP_ROOT")
 MODELS="$TMP_ROOT/models.json"
 CALLS="$TMP_ROOT/curl.calls"
+CURL_ARGS="$TMP_ROOT/curl.args"
 
 cat > "$FAKEBIN/curl" <<'SH'
 #!/usr/bin/env bash
 set -u
+printf '%s\n' "$@" > "${FAKE_CURL_ARGS:?}"
 out=''
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -47,7 +49,7 @@ JSON
 
 run_check() {  # <home> <output> [<now-epoch>]
   local home=$1 out=$2 now=${3:-1760000000} status=0
-  env PATH="$FAKEBIN:$PATH" FAKE_CURL_CALLS="$CALLS" FAKE_CURL_MODELS="$MODELS" \
+  env PATH="$FAKEBIN:$PATH" FAKE_CURL_ARGS="$CURL_ARGS" FAKE_CURL_CALLS="$CALLS" FAKE_CURL_MODELS="$MODELS" \
     FM_ROOT_OVERRIDE="$home" FM_HOME="$home" FM_JEV_CHECK_NOW="$now" "$CHECK" check >"$out" 2>&1 || status=$?
   expect_code 0 "$status" "Jev check exits"
 }
@@ -61,7 +63,8 @@ test_alias_move_records_baseline_then_alerts_once() {
   run_check "$home" "$out"
   [ ! -s "$out" ] || fail "the first alias observation must establish a baseline, got: $(cat "$out")"
   assert_equals '2026-09-10' "$(cat "$home/state/.jev-monitor-alias")" "baseline release date was not stored"
-  assert_equals '1' "$(wc -l < "$CALLS" | tr -d '[:space:]')" "the alias check did not make one fixture request"
+  assert_contains "$(cat "$CURL_ARGS")" $'--max-time\n2' "the watcher request did not use the hard two-second timeout"
+  assert_equals '1' "$(wc -l < "$CALLS" | tr -d '[:space:]')" "the alias check did not make exactly one fixture request"
 
   write_models 2026-10-01
   run_check "$home" "$out"
@@ -96,15 +99,19 @@ test_spend_thresholds_use_the_per_home_resolver_ledger() {
 }
 
 test_malformed_local_record_fails_closed() {
-  local home out ledger
+  local home out ledger fixture
   home=$(make_home malformed-ledger)
   out="$TMP_ROOT/malformed-ledger/out"
   ledger="$home/state/jev-usage.jsonl"
   write_models 2026-09-10
-  printf '%s\n' '{"at":1760000000,"input_tokens":"25000000"}' > "$ledger"
-  run_check "$home" "$out"
-  assert_contains "$(cat "$out")" 'Jev spend check failed: ledger is malformed' "a malformed local record was silently omitted"
-  assert_not_contains "$(cat "$out")" 'Jev spend alert:' "a malformed local record produced a spend total"
+  for fixture in \
+    '{"at":1760000000,"input_tokens":"25000000"}' \
+    '{"at":1760000000,"task":"","status":"error","rule":null,"confidence":null,"model":null,"input_tokens":null,"x-typesafe-request-id":null}'; do
+    printf '%s\n' "$fixture" > "$ledger"
+    run_check "$home" "$out"
+    assert_contains "$(cat "$out")" 'Jev spend check failed: ledger is malformed' "a malformed local record was silently omitted"
+    assert_not_contains "$(cat "$out")" 'Jev spend alert:' "a malformed local record produced a spend total"
+  done
   pass "malformed local records fail closed instead of undercounting spend"
 }
 

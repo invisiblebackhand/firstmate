@@ -100,7 +100,7 @@ usage() {
   ' "$0"
 }
 
-BRIEF='' PROJECT='' RULES_PATH="$CONFIG/crew-dispatch.json" RULES=''
+BRIEF='' PROJECT='' TASK_LABEL='' TASK_LABEL_VALID=0 RULES_PATH="$CONFIG/crew-dispatch.json" RULES=''
 while [ $# -gt 0 ]; do
   case "$1" in
     --project) [ $# -ge 2 ] || die "--project needs a value"; PROJECT=$2; shift 2 ;;
@@ -122,6 +122,15 @@ fi
 # ---- inputs --------------------------------------------------------------------
 [ -n "$BRIEF" ] || die "brief file required (see --help)"
 [ -r "$BRIEF" ] || die "brief file not readable: $BRIEF"
+BRIEF_PARENT=${BRIEF%/*}
+if [ "$BRIEF_PARENT" != "$BRIEF" ]; then
+  TASK_LABEL=${BRIEF_PARENT##*/}
+fi
+if fm_pr_task_id_valid "$TASK_LABEL"; then
+  TASK_LABEL_VALID=1
+else
+  TASK_LABEL=unknown
+fi
 [ -e "$RULES_PATH" ] || [ -L "$RULES_PATH" ] || no_rules
 [ -r "$RULES_PATH" ] || die "rules file not readable: $RULES_PATH"
 command -v jq >/dev/null 2>&1 || die "jq required"
@@ -231,13 +240,14 @@ emit_error() {
 append_ledger() {
   local device record ledger state result
   [ "${LEDGER_WRITTEN:-0}" -eq 0 ] || return 0
+  fm_pr_task_id_valid "$TASK_LABEL" || return 1
   result=${RESULT:-}
   [ -n "$result" ] || result='{}'
   state="$FM_HOME/state"
   ledger="$state/jev-usage.jsonl"
   mkdir -p "$state" || return 1
   [ -d "$state" ] && [ ! -L "$state" ] || return 1
-  record=$(jq -cn --argjson result "$result" --arg task "$PROJECT" --arg status "${LEDGER_STATUS:-error}" --arg request_id "${REQUEST_ID:-}" --argjson at "$(date +%s)" '
+  record=$(jq -cn --argjson result "$result" --arg task "$TASK_LABEL" --arg status "${LEDGER_STATUS:-error}" --arg request_id "${REQUEST_ID:-}" --argjson at "$(date +%s)" '
     {
       at: $at,
       task: $task,
@@ -271,6 +281,7 @@ RESULT='{}'
 LEDGER_WRITTEN=0
 LEDGER_STATUS=error
 RESOLUTION_STARTED=1
+[ "$TASK_LABEL_VALID" -eq 1 ] || emit_error "could not derive task label from brief path"
 command -v curl >/dev/null 2>&1 || emit_error "curl not installed"
   REQUEST=$(jq -n --rawfile brief "$BRIEF" --arg project "$PROJECT" --arg model "$TS_MODEL" \
     --arg none_criterion "$DEFAULT_WHEN" --slurpfile rules "$RULES" '
