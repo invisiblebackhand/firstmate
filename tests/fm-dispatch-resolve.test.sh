@@ -12,6 +12,8 @@ set -u
 
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+# shellcheck source=bin/fm-pr-lib.sh
+. "$ROOT/bin/fm-pr-lib.sh"
 
 TOOL="$ROOT/bin/fm-dispatch-resolve.sh"
 TMP_ROOT=$(fm_test_tmproot fm-dispatch-resolve)
@@ -25,7 +27,7 @@ RULES="$HOME_DIR/config/crew-dispatch.json"
 QUOTA="$TMP_ROOT/quota.json"
 BASE_PATH=$PATH
 mkdir -p "$HOME_DIR/config" "$LOG" "$NO_CURL_BIN"
-for command_name in bash chmod cp date dirname jq mkdir mktemp rm; do
+for command_name in bash chmod cp date dirname jq mkdir mktemp rm stat uname; do
   ln -s "$(command -v "$command_name")" "$NO_CURL_BIN/$command_name"
 done
 
@@ -256,6 +258,9 @@ assert_not_contains "$body" 'spendPriority' "quota never leaves the machine"
 assert_not_contains "$body" 'cursor-grok' "use profiles never leave the machine"
 ledger="$HOME_DIR/state/jev-usage.jsonl"
 assert_present "$ledger" "a resolved call appends the Jev usage ledger"
+[ ! -L "$ledger" ] || fail "a resolved call created a symlinked Jev usage ledger"
+assert_equals '600' "$(fm_pr_file_mode "$ledger")" "a resolved call creates a private Jev usage ledger"
+assert_equals '1' "$(fm_pr_file_link_count "$ledger")" "a resolved call creates a single-link Jev usage ledger"
 assert_equals '1' "$(wc -l < "$ledger" | tr -d '[:space:]')" "one resolver call produces one ledger line"
 assert_equals 'pager' "$(jq -r '.task' "$ledger")" "ledger stores the project as its task label"
 assert_equals 'clear' "$(jq -r '.status' "$ledger")" "ledger stores the resolved status"
@@ -279,6 +284,42 @@ assert_present "$HOME_DIR/state/jev-usage.jsonl" "a local secondmate writes its 
 assert_absent "$PARENT_HOME/state/jev-usage.jsonl" "a local secondmate wrote its parent's resolver ledger"
 assert_equals 'secondmate-task' "$(jq -r '.task' "$HOME_DIR/state/jev-usage.jsonl")" "the per-home record retains its task label"
 pass "local-secondmate resolver calls stay in their own home ledger"
+
+# --- ledger destination must remain private and single-link ------------------
+ledger="$HOME_DIR/state/jev-usage.jsonl"
+printf '%s\n' 'mode-sentinel' > "$ledger"
+chmod 0644 "$ledger"
+reset_log
+write_response "$RESPONSE" rule_4 0.9
+TYPESAFE_API_KEY=$KEY run code out err "$BRIEF" --project insecure-mode
+assert_contains "$out" '  status: error' "a permissive ledger mode was not refused"
+assert_contains "$out" 'could not append state/jev-usage.jsonl' "a permissive ledger refusal was not reported"
+assert_equals 'mode-sentinel' "$(cat "$ledger")" "a permissive ledger was modified"
+assert_equals '644' "$(fm_pr_file_mode "$ledger")" "a permissive ledger was silently chmodded"
+
+rm -f "$ledger"
+SYMLINK_TARGET="$TMP_ROOT/jev-usage-symlink-target"
+printf '%s\n' 'symlink-sentinel' > "$SYMLINK_TARGET"
+chmod 0600 "$SYMLINK_TARGET"
+ln -s "$SYMLINK_TARGET" "$ledger"
+reset_log
+TYPESAFE_API_KEY=$KEY run code out err "$BRIEF" --project symlink-ledger
+assert_contains "$out" '  status: error' "a symlinked ledger was not refused"
+assert_equals 'symlink-sentinel' "$(cat "$SYMLINK_TARGET")" "a symlinked ledger target was modified"
+[ -L "$ledger" ] || fail "a refused symlinked ledger was replaced"
+
+rm -f "$ledger"
+HARDLINK_TARGET="$TMP_ROOT/jev-usage-hardlink-target"
+printf '%s\n' 'hardlink-sentinel' > "$HARDLINK_TARGET"
+chmod 0600 "$HARDLINK_TARGET"
+ln "$HARDLINK_TARGET" "$ledger"
+reset_log
+TYPESAFE_API_KEY=$KEY run code out err "$BRIEF" --project hardlink-ledger
+assert_contains "$out" '  status: error' "a multiply linked ledger was not refused"
+assert_equals 'hardlink-sentinel' "$(cat "$HARDLINK_TARGET")" "a multiply linked ledger was modified"
+assert_equals '2' "$(fm_pr_file_link_count "$ledger")" "a refused multiply linked ledger changed identity"
+rm -f "$ledger" "$SYMLINK_TARGET" "$HARDLINK_TARGET"
+pass "resolver ledgers require private single-link regular destinations"
 
 # --- rules are snapshotted and line output is injection-safe -------------------
 MUTATED_RULES="$TMP_ROOT/mutated-rules.json"

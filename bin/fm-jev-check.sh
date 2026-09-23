@@ -10,7 +10,7 @@
 # Firstmate home's resolver ledger reaches USD 10 in the current UTC month or
 # USD 1 in the current UTC calendar day. The ledger is keyed by neither
 # TypeSafe account nor API key and excludes other Jev consumers. TypeSafe's
-# console is the account-wide USD 10/month authority; these are local alerts.
+# console is the account-wide USD 10/month authority; these are local estimates.
 # `arm` writes and registers state/jev-monitor.check.sh for watcher polling.
 # `disarm` removes that shim, its trust binding, and this check's records.
 #

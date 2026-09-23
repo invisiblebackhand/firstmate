@@ -47,7 +47,7 @@
 #   Firstmate home's state/jev-usage.jsonl. It records only resolver calls from
 #   this home, is keyed by neither TypeSafe account nor API key, and excludes
 #   other Jev consumers. TypeSafe's console is the account-wide USD 10/month
-#   authority; this ledger supports only local attribution alerts.
+#   authority; this ledger supports only local estimates and attribution alerts.
 #   Exit 2 only for a usage or configuration error (unreadable brief, an
 #   existing unreadable rules file, malformed rules, or missing jq), which is
 #   actionable, never selected around.
@@ -77,6 +77,8 @@ CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 . "$SCRIPT_DIR/fm-env-lib.sh"
 # shellcheck source=bin/fm-timing-lib.sh
 . "$SCRIPT_DIR/fm-timing-lib.sh"
+# shellcheck source=bin/fm-pr-lib.sh
+. "$SCRIPT_DIR/fm-pr-lib.sh"
 
 CONFIDENCE_FLOOR=0.6
 TS_MODEL=jev-1.13.0
@@ -226,7 +228,7 @@ emit_error() {
 }
 
 append_ledger() {
-  local record ledger state result
+  local device record ledger state result
   [ "${LEDGER_WRITTEN:-0}" -eq 0 ] || return 0
   result=${RESULT:-}
   [ -n "$result" ] || result='{}'
@@ -234,7 +236,6 @@ append_ledger() {
   ledger="$state/jev-usage.jsonl"
   mkdir -p "$state" || return 1
   [ -d "$state" ] && [ ! -L "$state" ] || return 1
-  [ ! -e "$ledger" ] || { [ -f "$ledger" ] && [ ! -L "$ledger" ]; } || return 1
   record=$(jq -cn --argjson result "$result" --arg task "$PROJECT" --arg status "${LEDGER_STATUS:-error}" --arg request_id "${REQUEST_ID:-}" --argjson at "$(date +%s)" '
     {
       at: $at,
@@ -246,7 +247,12 @@ append_ledger() {
       input_tokens: ($result.tokens.input_tokens // null),
       "x-typesafe-request-id": (if $request_id == "" then null else $request_id end)
     }') || return 1
-  (umask 077; printf '%s\n' "$record" >> "$ledger") || return 1
+  device=$(fm_pr_file_device "$state") || return 1
+  if [ ! -e "$ledger" ] && [ ! -L "$ledger" ]; then
+    (umask 077; : > "$ledger") || return 1
+  fi
+  fm_pr_private_file_valid "$ledger" 600 "$device" || return 1
+  printf '%s\n' "$record" >> "$ledger" || return 1
   LEDGER_WRITTEN=1
 }
 
