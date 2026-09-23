@@ -106,11 +106,12 @@ append_ledger() {
   ledger="$state/jev-usage.jsonl"
   mkdir -p "$state" || return 1
   [ -d "$state" ] && [ ! -L "$state" ] || return 1
-  record=$(jq -cn --argjson result "$result" --arg task "$TASK_LABEL" --arg status "${LEDGER_STATUS:-error}" --arg request_id "${REQUEST_ID:-}" --argjson at "$(date +%s)" '
+  record=$(jq -cn --argjson result "$result" --arg task "$TASK_LABEL" --arg status "${LEDGER_STATUS:-error}" --arg reason "${LEDGER_REASON:-}" --arg request_id "${REQUEST_ID:-}" --argjson at "$(date +%s)" '
     {
       at: $at,
       task: $task,
       status: $status,
+      reason: (if $reason == "" then null else $reason end),
       rule: ($result.rule // null),
       confidence: ($result.confidence // null),
       model: ($result.model // null),
@@ -129,6 +130,7 @@ append_ledger() {
 emit_error() {
   local reason=$1
   LEDGER_STATUS=error
+  LEDGER_REASON=
   if ! append_ledger; then
     reason="$reason; could not append state/jev-usage.jsonl"
   fi
@@ -139,13 +141,14 @@ emit_error() {
 
 no_rules() {
   LEDGER_STATUS=escalate
+  LEDGER_REASON=no_rules
   append_ledger || emit_error "could not append state/jev-usage.jsonl"
   printf 'dispatch-resolve:\n  status: escalate\n  reason: no rules to match\n'
   exit 0
 }
 
-BRIEF='' PROJECT='' TASK_LABEL='' TASK_LABEL_VALID=0 RULES_PATH="$CONFIG/crew-dispatch.json" RULES=''
-RESULT='{}' REQUEST_ID='' LEDGER_WRITTEN=0 LEDGER_STATUS=error
+BRIEF='' PROJECT='' TASK_LABEL='' RULES_PATH="$CONFIG/crew-dispatch.json" RULES=''
+RESULT='{}' REQUEST_ID='' LEDGER_WRITTEN=0 LEDGER_STATUS=error LEDGER_REASON=''
 while [ $# -gt 0 ]; do
   case "$1" in
     --project) [ $# -ge 2 ] || die "--project needs a value"; PROJECT=$2; shift 2 ;;
@@ -167,17 +170,17 @@ fi
 # ---- inputs --------------------------------------------------------------------
 [ -n "$BRIEF" ] || die "brief file required (see --help)"
 [ -r "$BRIEF" ] || die "brief file not readable: $BRIEF"
-BRIEF_PARENT=${BRIEF%/*}
-if [ "$BRIEF_PARENT" != "$BRIEF" ]; then
-  TASK_LABEL=${BRIEF_PARENT##*/}
-fi
-if fm_pr_task_id_valid "$TASK_LABEL"; then
-  TASK_LABEL_VALID=1
-else
-  TASK_LABEL=unknown
-fi
+case "$BRIEF" in
+  */*) BRIEF_PARENT=${BRIEF%/*}; [ -n "$BRIEF_PARENT" ] || BRIEF_PARENT=/ ;;
+  *) BRIEF_PARENT=. ;;
+esac
+BRIEF_PARENT=$(CDPATH='' cd -- "$BRIEF_PARENT" 2>/dev/null && pwd -P) || BRIEF_PARENT=
+TASK_LABEL=${BRIEF_PARENT##*/}
 command -v jq >/dev/null 2>&1 || die "jq required"
-[ "$TASK_LABEL_VALID" -eq 1 ] || emit_error "could not derive task label from brief path"
+if ! fm_pr_task_id_valid "$TASK_LABEL"; then
+  TASK_LABEL=unknown
+  emit_error "could not derive task label from brief path"
+fi
 [ -e "$RULES_PATH" ] || [ -L "$RULES_PATH" ] || no_rules
 [ -r "$RULES_PATH" ] || die "rules file not readable: $RULES_PATH"
 RULES=$(mktemp) || die "mktemp failed"

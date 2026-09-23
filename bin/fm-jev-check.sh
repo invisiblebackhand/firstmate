@@ -144,11 +144,12 @@ check_spend() {
     def nullable($kind): . == null or type == $kind;
     def valid:
       type == "object" and
-      has("at") and has("task") and has("status") and has("rule") and has("confidence") and
+      has("at") and has("task") and has("status") and has("reason") and has("rule") and has("confidence") and
       has("model") and has("input_tokens") and has("x-typesafe-request-id") and
       (.at | integer) and .at >= 0 and
       ((.task | type) == "string" and (.task | test("^[A-Za-z0-9_-][A-Za-z0-9._-]*$"))) and
       (.status | type) == "string" and
+      (.reason | nullable("string")) and
       (.rule | nullable("string")) and
       (.confidence == null or ((.confidence | type) == "number" and .confidence >= 0 and .confidence <= 1)) and
       (.model | nullable("string")) and

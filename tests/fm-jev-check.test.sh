@@ -90,17 +90,17 @@ test_spend_thresholds_use_the_per_home_resolver_ledger() {
   out="$TMP_ROOT/spend/out"
   ledger="$home/state/jev-usage.jsonl"
   write_models 2026-09-10
-  printf '%s\n' '{"at":1760000000,"task":"fixture","status":"clear","rule":"rule_1","confidence":0.9,"model":"jev-1.13.0","input_tokens":25000000,"x-typesafe-request-id":"req_fixture"}' > "$ledger"
+  printf '%s\n' '{"at":1760000000,"task":"fixture","status":"clear","reason":null,"rule":"rule_1","confidence":0.9,"model":"jev-1.13.0","input_tokens":25000000,"x-typesafe-request-id":"req_fixture"}' > "$ledger"
   run_check "$home" "$out"
   assert_contains "$(cat "$out")" 'Jev spend alert: per-home resolver ledger UTC calendar day 1.05 USD reaches the 1 USD daily threshold' "the daily threshold was not calculated from fixture tokens"
   assert_not_contains "$(cat "$out")" 'month-to-date' "the month threshold fired below 10 USD"
   run_check "$home" "$out"
   [ ! -s "$out" ] || fail "an unchanged spend threshold repeated: $(cat "$out")"
 
-  printf '%s\n' '{"at":1760000000,"task":"fixture","status":"clear","rule":"rule_1","confidence":0.9,"model":"jev-1.13.0","input_tokens":220000000,"x-typesafe-request-id":"req_fixture_2"}' >> "$ledger"
+  printf '%s\n' '{"at":1760000000,"task":"fixture","status":"clear","reason":null,"rule":"rule_1","confidence":0.9,"model":"jev-1.13.0","input_tokens":220000000,"x-typesafe-request-id":"req_fixture_2"}' >> "$ledger"
   run_check "$home" "$out"
   assert_contains "$(cat "$out")" 'per-home resolver ledger month-to-date 10.29 USD reaches the 10 USD local threshold' "the monthly threshold was not calculated from fixture tokens"
-  printf '%s\n' '{"at":1760000000,"task":"fixture","status":"clear","rule":"rule_1","confidence":0.9,"model":"jev-1.13.0","input_tokens":1000000,"x-typesafe-request-id":"req_fixture_3"}' >> "$ledger"
+  printf '%s\n' '{"at":1760000000,"task":"fixture","status":"clear","reason":null,"rule":"rule_1","confidence":0.9,"model":"jev-1.13.0","input_tokens":1000000,"x-typesafe-request-id":"req_fixture_3"}' >> "$ledger"
   run_check "$home" "$out"
   [ ! -s "$out" ] || fail "additional spend above an already-crossed threshold repeated: $(cat "$out")"
   pass "Jev spend thresholds read the per-home resolver ledger without repeating alerts"
@@ -114,7 +114,7 @@ test_malformed_local_record_fails_closed() {
   write_models 2026-09-10
   for fixture in \
     '{"at":1760000000,"input_tokens":"25000000"}' \
-    '{"at":1760000000,"task":"","status":"error","rule":null,"confidence":null,"model":null,"input_tokens":null,"x-typesafe-request-id":null}'; do
+    '{"at":1760000000,"task":"","status":"error","reason":null,"rule":null,"confidence":null,"model":null,"input_tokens":null,"x-typesafe-request-id":null}'; do
     printf '%s\n' "$fixture" > "$ledger"
     run_check "$home" "$out"
     assert_contains "$(cat "$out")" 'Jev spend check failed: ledger is malformed' "a malformed local record was silently omitted"
@@ -161,7 +161,7 @@ test_future_records_do_not_count_toward_spend() {
   out="$TMP_ROOT/future/out"
   ledger="$home/state/jev-usage.jsonl"
   write_models 2026-09-10
-  printf '%s\n' '{"at":1760000001,"task":"future","status":"clear","rule":"rule_1","confidence":0.9,"model":"jev-1.13.0","input_tokens":250000000,"x-typesafe-request-id":"req_future"}' > "$ledger"
+  printf '%s\n' '{"at":1760000001,"task":"future","status":"clear","reason":null,"rule":"rule_1","confidence":0.9,"model":"jev-1.13.0","input_tokens":250000000,"x-typesafe-request-id":"req_future"}' > "$ledger"
   run_check "$home" "$out"
   assert_not_contains "$(cat "$out")" 'Jev spend alert:' "future-dated usage counted toward a spend window"
   pass "future-dated local records are excluded from daily and monthly spend"
@@ -175,12 +175,12 @@ test_local_homes_keep_separate_resolver_ledgers() {
   ledger="$root/state/jev-usage.jsonl"
   write_models 2026-09-10
   printf 'schema=fm-secondmate-parent.v1\nroute=local\nparent_home=%s\n' "$root" > "$home/.fm-secondmate-parent"
-  printf '%s\n' '{"at":1760000000,"task":"primary","status":"clear","rule":"rule_1","confidence":0.9,"model":"jev-1.13.0","input_tokens":25000000,"x-typesafe-request-id":"req_primary"}' > "$ledger"
+  printf '%s\n' '{"at":1760000000,"task":"primary","status":"clear","reason":null,"rule":"rule_1","confidence":0.9,"model":"jev-1.13.0","input_tokens":25000000,"x-typesafe-request-id":"req_primary"}' > "$ledger"
   run_check "$home" "$out"
   assert_not_contains "$(cat "$out")" 'Jev spend alert:' "a local child counted its parent's resolver ledger"
 
   ledger="$home/state/jev-usage.jsonl"
-  printf '%s\n' '{"at":1760000000,"task":"child","status":"clear","rule":"rule_1","confidence":0.9,"model":"jev-1.13.0","input_tokens":25000000,"x-typesafe-request-id":"req_child"}' > "$ledger"
+  printf '%s\n' '{"at":1760000000,"task":"child","status":"clear","reason":null,"rule":"rule_1","confidence":0.9,"model":"jev-1.13.0","input_tokens":25000000,"x-typesafe-request-id":"req_child"}' > "$ledger"
   run_check "$home" "$out"
   assert_contains "$(cat "$out")" 'Jev spend alert: per-home resolver ledger UTC calendar day 1.05 USD reaches the 1 USD daily threshold' "a local child did not count its own resolver ledger"
   pass "local homes keep separate resolver ledgers"
@@ -194,7 +194,7 @@ test_daily_threshold_does_not_cross_utc_midnight() {
   state="$home/state/.jev-monitor-spend"
   write_models 2026-09-10
 
-  printf '%s\n' '{"at":1767225540,"task":"december-close","status":"clear","rule":"rule_1","confidence":0.9,"model":"jev-1.13.0","input_tokens":25000000,"x-typesafe-request-id":"req_december_close"}' > "$ledger"
+  printf '%s\n' '{"at":1767225540,"task":"december-close","status":"clear","reason":null,"rule":"rule_1","confidence":0.9,"model":"jev-1.13.0","input_tokens":25000000,"x-typesafe-request-id":"req_december_close"}' > "$ledger"
   run_check "$home" "$out" 1767225540
   assert_contains "$(cat "$out")" 'per-home resolver ledger UTC calendar day 1.05 USD reaches the 1 USD daily threshold' "the 23:59 UTC call did not alert on its own day"
   assert_equals '2025-12-31' "$(jq -r '.daily.period' "$state")" "the first daily alert used the wrong UTC date"
@@ -214,13 +214,13 @@ test_threshold_state_is_period_aware() {
   state="$home/state/.jev-monitor-spend"
   write_models 2026-09-10
 
-  printf '%s\n' '{"at":1764547200,"task":"december","status":"clear","rule":"rule_1","confidence":0.9,"model":"jev-1.13.0","input_tokens":240000000,"x-typesafe-request-id":"req_december"}' > "$ledger"
+  printf '%s\n' '{"at":1764547200,"task":"december","status":"clear","reason":null,"rule":"rule_1","confidence":0.9,"model":"jev-1.13.0","input_tokens":240000000,"x-typesafe-request-id":"req_december"}' > "$ledger"
   run_check "$home" "$out" 1767139200
   assert_contains "$(cat "$out")" 'per-home resolver ledger month-to-date 10.08 USD reaches the 10 USD local threshold' "December did not raise its monthly alert"
   assert_equals '2025-12' "$(jq -r '.monthly.period' "$state")" "December monthly state omitted its period"
   assert_equals 'false' "$(jq -r '.daily.alert' "$state")" "old December usage incorrectly raised the daily flag"
 
-  printf '%s\n' '{"at":1767225600,"task":"january","status":"clear","rule":"rule_1","confidence":0.9,"model":"jev-1.13.0","input_tokens":240000000,"x-typesafe-request-id":"req_january"}' > "$ledger"
+  printf '%s\n' '{"at":1767225600,"task":"january","status":"clear","reason":null,"rule":"rule_1","confidence":0.9,"model":"jev-1.13.0","input_tokens":240000000,"x-typesafe-request-id":"req_january"}' > "$ledger"
   run_check "$home" "$out" 1769817600
   assert_contains "$(cat "$out")" 'per-home resolver ledger month-to-date 10.08 USD reaches the 10 USD local threshold' "January reused December's monthly dedupe state"
   assert_equals '2026-01' "$(jq -r '.monthly.period' "$state")" "January monthly state omitted its period"

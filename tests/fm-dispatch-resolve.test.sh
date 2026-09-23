@@ -193,6 +193,16 @@ run() {
   printf -v "$__err" '%s' "$(cat "$TMP_ROOT/stderr")"
 }
 
+run_from() {
+  local cwd=$1 __exit=$2 __out=$3 __err=$4 _out _code
+  shift 4
+  _out=$(cd "$cwd" && PATH="$FAKEBIN:$BASE_PATH" FM_ROOT_OVERRIDE="$HOME_DIR" FM_HOME="$HOME_DIR" "$TOOL" "$@" 2> "$TMP_ROOT/stderr")
+  _code=$?
+  printf -v "$__exit" '%s' "$_code"
+  printf -v "$__out" '%s' "$_out"
+  printf -v "$__err" '%s' "$(cat "$TMP_ROOT/stderr")"
+}
+
 run_without_curl() {
   local __exit=$1 __out=$2 __err=$3 _out _code
   shift 3
@@ -399,6 +409,25 @@ pass "rules snapshots and shell quoting preserve the profile protocol"
 
 # --- no rules return control to the existing intake ----------------------------
 rm -f "$RULES"
+RELATIVE_BRIEF_DIR="$TMP_ROOT/data/relative-task"
+mkdir -p "$RELATIVE_BRIEF_DIR"
+cp "$BRIEF" "$RELATIVE_BRIEF_DIR/brief.md"
+for brief_spelling in brief.md ./brief.md; do
+  rm -f "$HOME_DIR/state/jev-usage.jsonl"
+  reset_log
+  TYPESAFE_API_KEY=$KEY run_from "$RELATIVE_BRIEF_DIR" code out err "$brief_spelling"
+  expect_code 0 "$code" "relative brief path exits 0: $brief_spelling"
+  assert_contains "$out" '  status: escalate' "relative brief path did not reach no-rules intake: $brief_spelling"
+  assert_contains "$out" '  reason: no rules to match' "relative brief path lost the no-rules reason: $brief_spelling"
+  assert_absent "$LOG/argv" "relative brief path called curl: $brief_spelling"
+  assert_absent "$LOG/quota-axi.calls" "relative brief path read quota: $brief_spelling"
+  assert_equals '1' "$(wc -l < "$HOME_DIR/state/jev-usage.jsonl" | tr -d '[:space:]')" "relative brief path did not record exactly one outcome: $brief_spelling"
+  assert_equals 'relative-task' "$(jq -r '.task' "$HOME_DIR/state/jev-usage.jsonl")" "relative brief path derived the wrong task ID: $brief_spelling"
+  assert_equals 'escalate' "$(jq -r '.status' "$HOME_DIR/state/jev-usage.jsonl")" "relative brief path did not record escalation: $brief_spelling"
+  assert_equals 'no_rules' "$(jq -r '.reason' "$HOME_DIR/state/jev-usage.jsonl")" "relative brief path did not record the no-rules reason: $brief_spelling"
+done
+pass "bare and dot-relative brief paths derive their physical parent task ID"
+
 rm -f "$HOME_DIR/state/jev-usage.jsonl"
 reset_log
 TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
@@ -411,6 +440,7 @@ assert_absent "$LOG/quota-axi.calls" "absent rules file never reads quota"
 assert_equals '1' "$(wc -l < "$HOME_DIR/state/jev-usage.jsonl" | tr -d '[:space:]')" "absent rules file did not record exactly one resolver outcome"
 assert_equals 'pager-task' "$(jq -r '.task' "$HOME_DIR/state/jev-usage.jsonl")" "absent rules record omitted the brief parent task ID"
 assert_equals 'escalate' "$(jq -r '.status' "$HOME_DIR/state/jev-usage.jsonl")" "absent rules record omitted the escalate outcome"
+assert_equals 'no_rules' "$(jq -r '.reason' "$HOME_DIR/state/jev-usage.jsonl")" "absent rules record omitted the no-rules reason"
 assert_equals '[null,null,null,null,null]' "$(jq -c '[.rule,.confidence,.model,.input_tokens,."x-typesafe-request-id"]' "$HOME_DIR/state/jev-usage.jsonl")" "absent rules record invented response metadata"
 
 DEFAULT_ONLY="$TMP_ROOT/default-only.json"
@@ -431,6 +461,7 @@ for direct_rules in "$DEFAULT_ONLY" "$EMPTY_RULES"; do
   assert_equals '1' "$(wc -l < "$HOME_DIR/state/jev-usage.jsonl" | tr -d '[:space:]')" "no-rule resolution did not record exactly one outcome: $direct_rules"
   assert_equals 'pager-task' "$(jq -r '.task' "$HOME_DIR/state/jev-usage.jsonl")" "no-rule record omitted the brief parent task ID: $direct_rules"
   assert_equals 'escalate' "$(jq -r '.status' "$HOME_DIR/state/jev-usage.jsonl")" "no-rule record omitted the escalate outcome: $direct_rules"
+  assert_equals 'no_rules' "$(jq -r '.reason' "$HOME_DIR/state/jev-usage.jsonl")" "no-rule record omitted the no-rules reason: $direct_rules"
   assert_equals '[null,null,null,null,null]' "$(jq -c '[.rule,.confidence,.model,.input_tokens,."x-typesafe-request-id"]' "$HOME_DIR/state/jev-usage.jsonl")" "no-rule record invented response metadata: $direct_rules"
 done
 
@@ -791,7 +822,7 @@ assert_contains "$out" '  status: error' "missing curl is a structured error out
 assert_contains "$out" '  reason: curl not installed' "missing curl is named in the TOON block"
 assert_contains "$err" 'dispatch-resolve: error (curl not installed)' "missing curl is also reported on stderr"
 assert_equals '1' "$(wc -l < "$HOME_DIR/state/jev-usage.jsonl" | tr -d '[:space:]')" "missing curl leaves one error record"
-assert_equals '["at","confidence","input_tokens","model","rule","status","task","x-typesafe-request-id"]' "$(jq -c 'keys' "$HOME_DIR/state/jev-usage.jsonl")" "partial calls retain the complete ledger schema"
+assert_equals '["at","confidence","input_tokens","model","reason","rule","status","task","x-typesafe-request-id"]' "$(jq -c 'keys' "$HOME_DIR/state/jev-usage.jsonl")" "partial calls retain the complete ledger schema"
 assert_equals '[null,null,null,null]' "$(jq -c '[.rule,.confidence,.model,.input_tokens]' "$HOME_DIR/state/jev-usage.jsonl")" "unavailable partial-call metadata is null"
 reset_log
 rm -f "$HOME_DIR/state/jev-usage.jsonl"
