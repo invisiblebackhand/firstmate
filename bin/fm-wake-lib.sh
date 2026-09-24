@@ -1264,7 +1264,7 @@ fm_treehouse_project_lock_path() {  # <project-dir>
 # does not already carry an in-project root is left alone rather than
 # overwritten, so a real project or operator config is never clobbered.
 fm_treehouse_ensure_isolated_pool() {  # <project-dir> <home>
-  local project=$1 home=$2 root_home toml exclude tmp
+  local project=$1 home=$2 root_home toml exclude tmp ignore_status
   [ -d "$project" ] || return 1
   home=$(CDPATH='' cd -- "$home" 2>/dev/null && pwd -P) || return 1
   root_home=$(fm_firstmate_root_home "$home") || return 1
@@ -1288,17 +1288,26 @@ fm_treehouse_ensure_isolated_pool() {  # <project-dir> <home>
       return 1
     fi
   fi
-  # Best-effort hygiene: keep the untracked config out of `git status` for
-  # this clone, the same way any other local-only operational file would be.
-  # Never fatal - the isolated pool is already in place either way.
-  exclude=$(git -C "$project" rev-parse --path-format=absolute --git-path info/exclude 2>/dev/null) || exclude=
-  if [ -n "$exclude" ]; then
-    mkdir -p "$(dirname "$exclude")" 2>/dev/null
-    if [ -f "$exclude" ]; then
-      grep -qxF 'treehouse.toml' "$exclude" 2>/dev/null || printf 'treehouse.toml\n' >> "$exclude" 2>/dev/null
-    else
-      printf 'treehouse.toml\n' > "$exclude" 2>/dev/null
-    fi
+  # Fleet sync treats any untracked path as a dirty clone, so keep both local
+  # Treehouse artifacts out of Git porcelain while respecting existing rules.
+  exclude=$(git -C "$project" rev-parse --path-format=absolute --git-path info/exclude 2>/dev/null) || return 1
+  mkdir -p "$(dirname "$exclude")" 2>/dev/null || return 1
+  if [ ! -f "$exclude" ]; then
+    : > "$exclude" 2>/dev/null || return 1
+  fi
+  if git -C "$project" check-ignore -q --no-index -- treehouse.toml 2>/dev/null; then
+    :
+  else
+    ignore_status=$?
+    [ "$ignore_status" -eq 1 ] || return 1
+    printf 'treehouse.toml\n' >> "$exclude" 2>/dev/null || return 1
+  fi
+  if git -C "$project" check-ignore -q --no-index -- .treehouse/ 2>/dev/null; then
+    :
+  else
+    ignore_status=$?
+    [ "$ignore_status" -eq 1 ] || return 1
+    printf '/.treehouse/\n' >> "$exclude" 2>/dev/null || return 1
   fi
   return 0
 }

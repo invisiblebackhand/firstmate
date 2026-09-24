@@ -209,17 +209,24 @@ test_ensure_isolated_pool_refuses_incompatible_existing_config() {
   pass "fm_treehouse_ensure_isolated_pool refuses to overwrite an incompatible pre-existing treehouse.toml"
 }
 
-test_ensure_isolated_pool_excludes_config_from_git_status() {
-  local rec out status porcelain
+test_ensure_isolated_pool_keeps_project_clean_after_get() {
+  local rec out status slot porcelain
   rec=$(make_case exclude)
   read_case "$rec"
 
   out=$(run_ensure "$SECOND_CLONE" "$SECOND_HOME" 2>&1)
   status=$?
   expect_code 0 "$status" "isolation call should succeed"$'\n'"$out"
+  slot=$(treehouse_pool "$SECOND_CLONE" get --lease --lease-holder clean-project-task 2>/dev/null)
+  [ -n "$slot" ] && [ -d "$slot" ] || fail "isolated secondmate clone could not draw a Treehouse slot"
+  case "$slot" in
+    "$SECOND_CLONE/.treehouse/"*) : ;;
+    *) fail "in-project Treehouse pool was not created under .treehouse/: $slot" ;;
+  esac
   porcelain=$(git -C "$SECOND_CLONE" status --porcelain)
-  [ -z "$porcelain" ] || fail "the isolation config shows up as untracked in the secondmate clone's own git status: $porcelain"
-  pass "the isolation config is excluded from the secondmate clone's own git status"
+  [ -z "$porcelain" ] || fail "Treehouse isolation artifacts dirty the secondmate clone: $porcelain"
+  treehouse_pool "$SECOND_CLONE" return --force "$slot" >/dev/null 2>&1 || true
+  pass "Treehouse isolation config and pool state leave the secondmate clone clean"
 }
 
 test_reproduces_cross_home_pool_collision
@@ -227,6 +234,6 @@ test_ensure_isolated_pool_is_noop_for_root_home
 test_ensure_isolated_pool_fixes_secondmate_collision
 test_ensure_isolated_pool_is_idempotent
 test_ensure_isolated_pool_refuses_incompatible_existing_config
-test_ensure_isolated_pool_excludes_config_from_git_status
+test_ensure_isolated_pool_keeps_project_clean_after_get
 
 echo "# all fm-treehouse-pool-isolation tests passed"
