@@ -3840,6 +3840,17 @@ if [ "$RELAUNCH" -eq 1 ]; then
   fi
   [ "$KIND" = secondmate ] || validate_spawn_worktree "relaunch" "$T"
 elif [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
+  # A non-root home's own clone of this project can otherwise share Treehouse's
+  # pool identity with the primary checkout's clone (same name, same origin),
+  # so a slot handed back here could be a worktree of a DIFFERENT home's clone
+  # - which bin/fm-claude-trust.sh correctly refuses. Isolate this home's pool
+  # before ever asking Treehouse for a slot; see fm_treehouse_ensure_isolated_pool
+  # in bin/fm-wake-lib.sh for the verified cause and the fix. A no-op for the
+  # root home, whose existing pool location is never touched.
+  if command -v treehouse >/dev/null 2>&1 && ! fm_treehouse_ensure_isolated_pool "$PROJ_ABS" "$FM_HOME"; then
+    echo "error: could not isolate this home's Treehouse pool for project '$PROJ_ABS'; refusing to launch a worker that could be handed a slot belonging to a different clone of this project" >&2
+    exit 1
+  fi
   spawn_send_text_line "$WT_TARGET" 'treehouse get'
 
   # Wait for the treehouse subshell: the pane's cwd moves from the project to the worktree.

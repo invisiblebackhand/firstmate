@@ -1232,6 +1232,77 @@ fm_treehouse_project_lock_path() {  # <project-dir>
   printf '%s/.treehouse-project-%s.lock\n' "$root/state" "$hash"
 }
 
+# A secondmate's own standalone clone of a project can share Treehouse's pool
+# identity with the primary checkout's clone of the very same project.
+# Verified live (Treehouse v2.3.0, 2026-09-24, disposable sandbox): Treehouse
+# names a pool "<repo-basename>-<sha256(origin-url)[:6]>" under one shared
+# root, never by which clone asked, so two independent clones with the same
+# directory name and origin resolve to the identical pool. A pool that
+# already has slots linked from the OTHER clone can then hand one of those
+# out to a `treehouse get` run from this clone; bin/fm-claude-trust.sh
+# correctly refuses that slot (it is not a worktree of the project this spawn
+# was given), so the secondmate could never dispatch a worker for that
+# project at all - see data/fm-pool-fix/dispatch-blocker.md for the field
+# report this fixes.
+#
+# The fix leans on Treehouse's own supported per-project config instead of
+# working around it: `treehouse init`'s generated treehouse.toml documents
+# `root = "."` as keeping the pool in-project, at <repo>/.treehouse/, "next to
+# the code and removed with the project" - genuinely scoped to that one
+# clone's own directory tree, which cannot alias another clone's pool no
+# matter what origin they share. Every treehouse invocation this repo makes
+# against a project (get, return, status) always runs with the project's own
+# clone as cwd, so writing this file once is enough - no call site needs a
+# --root flag or TREEHOUSE_ROOT export to find it.
+#
+# Only a home that is NOT the local root ever gets this. The root/primary
+# home's project clones keep Treehouse's ordinary default root untouched:
+# changing it would silently orphan whatever is already leased there under
+# the old location (a live pool can hold work in progress), so a pool is
+# never moved here, only isolated for a home that had no established pool
+# location worth preserving. Fails closed: an existing treehouse.toml that
+# does not already carry an in-project root is left alone rather than
+# overwritten, so a real project or operator config is never clobbered.
+fm_treehouse_ensure_isolated_pool() {  # <project-dir> <home>
+  local project=$1 home=$2 root_home toml exclude tmp
+  [ -d "$project" ] || return 1
+  home=$(CDPATH='' cd -- "$home" 2>/dev/null && pwd -P) || return 1
+  root_home=$(fm_firstmate_root_home "$home") || return 1
+  [ "$home" != "$root_home" ] || return 0
+  toml="$project/treehouse.toml"
+  if [ -e "$toml" ] || [ -L "$toml" ]; then
+    if [ -f "$toml" ] && [ ! -L "$toml" ] \
+      && grep -Eq '^[[:space:]]*root[[:space:]]*=[[:space:]]*"\."[[:space:]]*(#.*)?$' "$toml" 2>/dev/null; then
+      : # already isolated by an earlier spawn; nothing to do
+    else
+      echo "fm-wake-lib: $toml already exists without an in-project root=\".\"; refusing to overwrite it to isolate this home's Treehouse pool for $project - inspect it by hand" >&2
+      return 1
+    fi
+  else
+    tmp="$toml.tmp.${BASHPID:-$$}"
+    if { printf 'max_trees = 16\n'; printf 'root = "."\n'; } > "$tmp" 2>/dev/null \
+      && mv -f "$tmp" "$toml" 2>/dev/null; then
+      :
+    else
+      rm -f "$tmp" 2>/dev/null
+      return 1
+    fi
+  fi
+  # Best-effort hygiene: keep the untracked config out of `git status` for
+  # this clone, the same way any other local-only operational file would be.
+  # Never fatal - the isolated pool is already in place either way.
+  exclude=$(git -C "$project" rev-parse --path-format=absolute --git-path info/exclude 2>/dev/null) || exclude=
+  if [ -n "$exclude" ]; then
+    mkdir -p "$(dirname "$exclude")" 2>/dev/null
+    if [ -f "$exclude" ]; then
+      grep -qxF 'treehouse.toml' "$exclude" 2>/dev/null || printf 'treehouse.toml\n' >> "$exclude" 2>/dev/null
+    else
+      printf 'treehouse.toml\n' > "$exclude" 2>/dev/null
+    fi
+  fi
+  return 0
+}
+
 # A Treehouse slot has the managed pool's fixed <pool>/<slot>/<repo> layout.
 # Require both its pool state and the same Git common directory as the recorded
 # project; an ordinary linked worktree is not evidence that Treehouse owns it.
