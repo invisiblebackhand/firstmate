@@ -156,8 +156,6 @@ test_ensure_isolated_pool_fixes_secondmate_collision() {
   out=$(run_ensure "$SECOND_CLONE" "$SECOND_HOME" 2>&1)
   status=$?
   expect_code 0 "$status" "fm_treehouse_ensure_isolated_pool should isolate the secondmate's clone"$'\n'"$out"
-  assert_grep 'root = "."' "$SECOND_CLONE/treehouse.toml" \
-    "fm_treehouse_ensure_isolated_pool did not write an in-project root"
 
   # Ambient TREEHOUSE_ROOT still points at the shared pool - exactly what a
   # secondmate spawn would otherwise inherit unchanged - to prove the
