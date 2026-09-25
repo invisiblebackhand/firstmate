@@ -33,8 +33,7 @@ TMP_ROOT=$(fm_test_tmproot fm-treehouse-pool-isolation)
 # make_case <name>: a shared bare origin plus a root-home clone and a
 # secondmate-home clone of it, both named "myproj" - the exact shape that
 # collides (same basename, same origin, two homes) - plus a scratch $HOME so
-# Treehouse's real default root ("$HOME/.treehouse", never TREEHOUSE_ROOT or
-# --root - see below) lands somewhere disposable rather than the operator's
+# any default resolution stays disposable rather than touching the operator's
 # actual home directory. Echoes
 # "<case>|<root_home>|<secondmate_home>|<root_clone>|<second_clone>|<scratch_home>".
 make_case() {
@@ -77,17 +76,14 @@ slot_common_dir() {
 }
 
 # treehouse_pool <clone-dir> <treehouse-args...>: run treehouse from
-# <clone-dir> exactly as fm-spawn.sh and fm-teardown.sh do - no --root, no
-# TREEHOUSE_ROOT, so Treehouse resolves its own default ("$HOME/.treehouse")
-# or, once fm_treehouse_ensure_isolated_pool has run, the clone's own
-# treehouse.toml. $HOME is overridden to the case's scratch directory only so
-# that default resolution never touches the operator's real ~/.treehouse; a
-# real firstmate spawn shares one actual $HOME across every home on the
-# machine, which is exactly why an isolated clone must win on config, not env.
+# <clone-dir> with a case-local competing TREEHOUSE_ROOT, as a spawn can
+# inherit. Raw calls resolve to that shared pool; a non-root home's acquisition
+# must pass --root . to keep its pool inside its own clone. $HOME is also
+# case-local so no fallback can touch the operator's actual ~/.treehouse.
 treehouse_pool() {
   local clone=$1
   shift
-  ( unset TREEHOUSE_ROOT; cd "$clone" && HOME="$SCRATCH_HOME" treehouse "$@" )
+  ( cd "$clone" && HOME="$SCRATCH_HOME" TREEHOUSE_ROOT="$CASE_DIR/shared-treehouse" treehouse "$@" )
 }
 
 # prime_shared_pool: acquire and return one slot from the root clone, exactly
@@ -157,10 +153,7 @@ test_ensure_isolated_pool_fixes_secondmate_collision() {
   status=$?
   expect_code 0 "$status" "fm_treehouse_ensure_isolated_pool should isolate the secondmate's clone"$'\n'"$out"
 
-  # Ambient TREEHOUSE_ROOT still points at the shared pool - exactly what a
-  # secondmate spawn would otherwise inherit unchanged - to prove the
-  # project's own config wins, not a lucky test environment.
-  slot=$(treehouse_pool "$SECOND_CLONE" get --lease --lease-holder second-task 2>/dev/null)
+  slot=$(treehouse_pool "$SECOND_CLONE" get --root . --lease --lease-holder second-task 2>/dev/null)
   [ -n "$slot" ] && [ -d "$slot" ] || fail "isolated secondmate clone could not draw a Treehouse slot"
   [ "$(slot_common_dir "$slot")" = "$(slot_common_dir "$SECOND_CLONE")" ] \
     || fail "fix did not resolve the collision: the slot is still not a worktree of the secondmate's own clone"
@@ -217,7 +210,7 @@ test_ensure_isolated_pool_keeps_project_clean_after_get() {
   out=$(run_ensure "$SECOND_CLONE" "$SECOND_HOME" 2>&1)
   status=$?
   expect_code 0 "$status" "isolation call should succeed"$'\n'"$out"
-  slot=$(treehouse_pool "$SECOND_CLONE" get --lease --lease-holder clean-project-task 2>/dev/null)
+  slot=$(treehouse_pool "$SECOND_CLONE" get --root . --lease --lease-holder clean-project-task 2>/dev/null)
   [ -n "$slot" ] && [ -d "$slot" ] || fail "isolated secondmate clone could not draw a Treehouse slot"
   case "$slot" in
     "$SECOND_CLONE/.treehouse/"*) : ;;

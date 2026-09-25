@@ -252,7 +252,7 @@ run_spawn_record() {
 }
 
 test_spawn_tmux_window_construction() {
-  local home proj fakebin rec wt out status
+  local home root_home proj fakebin rec wt out status
   home="$TMP_ROOT/spawn-rec-home"
   mkdir -p "$home/data"
   proj=$(make_repo "$TMP_ROOT/spawn-rec-proj")
@@ -284,7 +284,25 @@ test_spawn_tmux_window_construction() {
   assert_grep "display-message -p -t @spawnwid #{pane_current_path}" "$rec" \
     "the worktree wait loop must query the stable window id, not the name"
 
-  pass "fm-spawn: appends windows by session-colon, pins the name, and targets the window id"
+  root_home="$TMP_ROOT/spawn-rec-root-home"
+  home="$root_home/secondmate-home"
+  fm_test_spawn_home "$root_home"
+  fm_test_spawn_home "$home"
+  cat > "$home/.fm-secondmate-parent" <<EOF
+schema=fm-secondmate-parent.v1
+route=local
+parent_home=$root_home
+EOF
+  : > "$rec"
+  out=$(TREEHOUSE_ROOT="$TMP_ROOT/competing-treehouse-root" \
+    run_spawn_record "$home" rec-pool-hh8 "$proj" "$wt" "$fakebin" "$rec")
+  status=$?
+  expect_code 0 "$status" "spawn from a non-root home should succeed with a competing TREEHOUSE_ROOT"
+  assert_contains "$out" "spawned rec-pool-hh8" "non-root recording spawn did not report success"
+  assert_grep "send-keys -t @spawnwid treehouse get --root . Enter" "$rec" \
+    "non-root spawn did not force its in-project Treehouse pool"
+
+  pass "fm-spawn pins window identity and forces non-root pool isolation"
 }
 
 test_lib_classification

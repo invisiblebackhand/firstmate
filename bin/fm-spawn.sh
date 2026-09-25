@@ -3847,11 +3847,25 @@ elif [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
   # before ever asking Treehouse for a slot; see fm_treehouse_ensure_isolated_pool
   # in bin/fm-wake-lib.sh for the verified cause and the fix. A no-op for the
   # root home, whose existing pool location is never touched.
-  if command -v treehouse >/dev/null 2>&1 && ! fm_treehouse_ensure_isolated_pool "$PROJ_ABS" "$FM_HOME"; then
-    echo "error: could not isolate this home's Treehouse pool for project '$PROJ_ABS'; refusing to launch a worker that could be handed a slot belonging to a different clone of this project" >&2
-    exit 1
+  SPAWN_TREEHOUSE_GET_LINE='treehouse get'
+  if command -v treehouse >/dev/null 2>&1; then
+    if ! fm_treehouse_ensure_isolated_pool "$PROJ_ABS" "$FM_HOME"; then
+      echo "error: could not isolate this home's Treehouse pool for project '$PROJ_ABS'; refusing to launch a worker that could be handed a slot belonging to a different clone of this project" >&2
+      exit 1
+    fi
+    SPAWN_TREEHOUSE_HOME=$(CDPATH='' cd -- "$FM_HOME" 2>/dev/null && pwd -P) || {
+      echo "error: could not resolve this Firstmate home while selecting its Treehouse pool" >&2
+      exit 1
+    }
+    SPAWN_TREEHOUSE_ROOT_HOME=$(fm_firstmate_root_home "$FM_HOME") || {
+      echo "error: could not resolve this Firstmate home's root while selecting its Treehouse pool" >&2
+      exit 1
+    }
+    if [ "$SPAWN_TREEHOUSE_HOME" != "$SPAWN_TREEHOUSE_ROOT_HOME" ]; then
+      SPAWN_TREEHOUSE_GET_LINE='treehouse get --root .'
+    fi
   fi
-  spawn_send_text_line "$WT_TARGET" 'treehouse get'
+  spawn_send_text_line "$WT_TARGET" "$SPAWN_TREEHOUSE_GET_LINE"
 
   # Wait for the treehouse subshell: the pane's cwd moves from the project to the worktree.
   # Target the stable window id, not the name: if the name is ever lost (e.g. an
