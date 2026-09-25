@@ -252,7 +252,7 @@ run_spawn_record() {
 }
 
 test_spawn_tmux_window_construction() {
-  local home root_home proj fakebin rec wt out status
+  local home root_home proj fakebin rec wt out status pool_hash pool_root
   home="$TMP_ROOT/spawn-rec-home"
   mkdir -p "$home/data"
   proj=$(make_repo "$TMP_ROOT/spawn-rec-proj")
@@ -299,8 +299,10 @@ EOF
   status=$?
   expect_code 0 "$status" "spawn from a non-root home should succeed with a competing TREEHOUSE_ROOT"
   assert_contains "$out" "spawned rec-pool-hh8" "non-root recording spawn did not report success"
-  assert_grep "send-keys -t @spawnwid treehouse get --root . Enter" "$rec" \
-    "non-root spawn did not force its in-project Treehouse pool"
+  pool_hash=$(printf '%s' "$proj" | git hash-object --stdin)
+  pool_root="${XDG_STATE_HOME:-$home/user-home/.local/state}/firstmate/treehouse-pools/$pool_hash"
+  assert_grep "send-keys -t @spawnwid treehouse get --root '$pool_root' Enter" "$rec" \
+    "non-root spawn did not force its absolute isolated Treehouse pool"
 
   pass "fm-spawn pins window identity and forces non-root pool isolation"
 }
