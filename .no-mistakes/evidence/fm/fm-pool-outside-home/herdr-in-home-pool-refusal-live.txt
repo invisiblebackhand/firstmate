@@ -1,0 +1,10 @@
+LAB_SESSION=fm-lab-pool-inside-home-54017-6509
+LAB_PROVISIONED=yes
+SPAWN_EXIT=1
+fm-wake-lib: isolated Treehouse pool root '/Users/noahvonmaur/.no-mistakes/worktrees/36da6c2503c7/01M3B3R59BVEQQQ6S0TYSVNKGM/.nm-live-refusal-fm-lab-pool-inside-home-54017-6509/secondmate-home/xdg-state/firstmate/treehouse-pools/1cb4a4c3c49f7245b7043c203dc577a741af2ce3' resolves inside active Firstmate home '/Users/noahvonmaur/.no-mistakes/worktrees/36da6c2503c7/01M3B3R59BVEQQQ6S0TYSVNKGM/.nm-live-refusal-fm-lab-pool-inside-home-54017-6509/secondmate-home'; refusing to use it
+error: could not resolve this home's isolated Treehouse pool location for project '/Users/noahvonmaur/.no-mistakes/worktrees/36da6c2503c7/01M3B3R59BVEQQQ6S0TYSVNKGM/.nm-live-refusal-fm-lab-pool-inside-home-54017-6509/secondmate-home/projects/worker-project'
+WORKER_LAUNCHED=no
+TASK_META_WRITTEN=no
+PROJECT_TREEHOUSE_CONFIG_CREATED=no
+PROJECT_GIT_STATUS=clean
+LAB_TEARDOWN=complete

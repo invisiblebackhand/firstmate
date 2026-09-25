@@ -1,0 +1,10 @@
+ok - reproduced: an unmodified Treehouse pool hands a secondmate clone a slot linked to the root's own clone
+ok - fm_treehouse_pool_root ignores a relative XDG_STATE_HOME
+ok - fm_treehouse_pool_root keys each project independently of the launcher repository format
+ok - an explicit isolated root gives the secondmate clone its own pool without touching the root's
+ok - an explicit root overrides project config without modifying it
+ok - an explicit isolated pool leaves the secondmate clone clean
+ok - the explicit pool root and leased worktrees stay outside the active and root homes
+ok - an explicit root bypasses legacy project config without disturbing its live slot
+ok - fm_treehouse_pool_root gives two project-less homes of one shared repo distinct, non-aliasing pools
+# all fm-treehouse-pool-isolation tests passed

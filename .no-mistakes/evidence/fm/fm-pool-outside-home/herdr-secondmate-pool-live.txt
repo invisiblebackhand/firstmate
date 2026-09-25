@@ -1,0 +1,27 @@
+LAB_SESSION=fm-lab-pool-outside-hom-30013-5602
+LAB_PROVISIONED=yes
+PROJECT=/Users/noahvonmaur/.no-mistakes/worktrees/36da6c2503c7/01M3B3R59BVEQQQ6S0TYSVNKGM/.nm-live-pool-fm-lab-pool-outside-hom-30013-5602/secondmate-home/projects/worker-project
+spawned pool-live-a1 harness=sh kind=ship mode=no-mistakes yolo=off window=fm-lab-pool-outside-hom-30013-5602:w1:p2 worktree=/Users/noahvonmaur/.no-mistakes/worktrees/36da6c2503c7/01M3B3R59BVEQQQ6S0TYSVNKGM/.nm-live-pool-fm-lab-pool-outside-hom-30013-5602/xdg-state/firstmate/treehouse-pools/45ca42ffeee84dc85c48975423832e1156a95033/.treehouse/worker-project-8b58d2/1/worker-project
+WORKER_OUTPUT=SECOND_MATE_WORKER_RAN
+WORKTREE=/Users/noahvonmaur/.no-mistakes/worktrees/36da6c2503c7/01M3B3R59BVEQQQ6S0TYSVNKGM/.nm-live-pool-fm-lab-pool-outside-hom-30013-5602/xdg-state/firstmate/treehouse-pools/45ca42ffeee84dc85c48975423832e1156a95033/.treehouse/worker-project-8b58d2/1/worker-project
+POOL_ROOT=/Users/noahvonmaur/.no-mistakes/worktrees/36da6c2503c7/01M3B3R59BVEQQQ6S0TYSVNKGM/.nm-live-pool-fm-lab-pool-outside-hom-30013-5602/xdg-state/firstmate/treehouse-pools/45ca42ffeee84dc85c48975423832e1156a95033/.treehouse/worker-project-8b58d2
+OUTSIDE_ACTIVE_HOME=yes
+OUTSIDE_ROOT_HOME=yes
+WORKTREE_LINKED_TO_SECOND_MATE_CLONE=yes
+PROJECT_TREEHOUSE_CONFIG_CREATED=no
+PROJECT_GIT_STATUS=clean
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision according to the session-start block for this harness; do not use shell &.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+teardown: reaping leaked worktree process(es) for pool-live-a1: 30712 33441
+teardown: force-killing leaked worktree process(es) for pool-live-a1: 30712
+🌳 Worktree returned to pool.
+/Users/noahvonmaur/.no-mistakes/worktrees/36da6c2503c7/01M3B3R59BVEQQQ6S0TYSVNKGM/.nm-live-pool-fm-lab-pool-outside-hom-30013-5602/secondmate-home/projects/worker-project: already current
+teardown pool-live-a1 complete (window fm-lab-pool-outside-hom-30013-5602:w1:p2, worktree /Users/noahvonmaur/.no-mistakes/worktrees/36da6c2503c7/01M3B3R59BVEQQQ6S0TYSVNKGM/.nm-live-pool-fm-lab-pool-outside-hom-30013-5602/xdg-state/firstmate/treehouse-pools/45ca42ffeee84dc85c48975423832e1156a95033/.treehouse/worker-project-8b58d2/1/worker-project)
+Backlog: pool-live-a1 just finished (this home keeps no markdown backlog at /Users/noahvonmaur/.no-mistakes/worktrees/36da6c2503c7/01M3B3R59BVEQQQ6S0TYSVNKGM/.nm-live-pool-fm-lab-pool-outside-hom-30013-5602/secondmate-home/data/backlog.md). Update /Users/noahvonmaur/.no-mistakes/worktrees/36da6c2503c7/01M3B3R59BVEQQQ6S0TYSVNKGM/.nm-live-pool-fm-lab-pool-outside-hom-30013-5602/secondmate-home/data/backlog.md - move pool-live-a1 to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+TASK_TEARDOWN=complete
+LAB_TEARDOWN=complete
