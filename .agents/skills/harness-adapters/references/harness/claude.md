@@ -35,7 +35,8 @@ A visible trust dialog means pre-registration did not take effect (or the projec
 A visible external-imports dialog is expected, not a failure signal, whenever the project entry has no prior explicit approval on record - the common first-spawn case.
 Escape is NOT a harmless dismissal for that dialog, though.
 Verified 2026-09-24 on Claude Code 2.1.282: `fm-control.sh <id> interrupt`'s Escape answers the external-imports dialog by saving an explicit decline on the project entry (`hasClaudeMdExternalIncludesApproved=false`, `hasClaudeMdExternalIncludesWarningShown=true`), the same pair `../../../bin/fm-claude-trust.sh` treats as a human "No, disable" and refuses to overwrite on every later registration, wedging every later launch for that project from that home.
-Fixing the pool location so the dialog never renders is the only way to avoid this outcome; `../../../bin/fm-spawn.sh` passes `fm_treehouse_pool_root` from `../../../bin/fm-wake-lib.sh` directly to `treehouse get --root` so a non-root home's leased worktree cannot inherit that home's own `CLAUDE.md` as an ancestor, and there is no key that clears a wedged pane without it.
+The isolated pool prevents this incident from recurring: `../../../bin/fm-spawn.sh` passes `fm_treehouse_pool_root` from `../../../bin/fm-wake-lib.sh` directly to `treehouse get --root` so a non-root home's own `CLAUDE.md` (`@AGENTS.md`) cannot be an ancestor of its leased worktree.
+Other external import sources can still render the dialog, and there is no key that clears a wedged pane without answering it.
 If the dialog is already on screen, inspect it and escalate rather than sending Escape to "clear" it - the resulting decline is a real, sticky outcome, not a no-op.
 The trust dialog's own Escape behavior is unverified; do not assume it is dismiss-only either without the same kind of check.
 
