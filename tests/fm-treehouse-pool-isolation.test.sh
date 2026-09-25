@@ -1,14 +1,13 @@
 #!/usr/bin/env bash
 # tests/fm-treehouse-pool-isolation.test.sh - real-Treehouse regression for
-# the cross-clone pool collision described by
-# fm_treehouse_ensure_isolated_pool in bin/fm-wake-lib.sh, and for the
-# CLAUDE.md-ancestor regression an earlier in-project fix (root = ".") caused:
-# a non-root home's isolated pool must sit outside the active Firstmate home
-# and its root home's directory tree, not just outside other clones.
-# It proves the collision, root-home no-op, out-of-home-tree isolation, config
-# refusal, legacy in-project migration, project-less aliasing avoidance, clean
-# Git porcelain, and acquire-to-return lifecycle under a competing
-# TREEHOUSE_ROOT; fake spawn-harness Treehouse stubs cannot cover those facts.
+# the cross-clone pool collision and for the CLAUDE.md-ancestor regression an
+# earlier in-project fix (root = ".") caused: a non-root home's isolated pool
+# must sit outside the active Firstmate home and its root home's directory
+# tree, not just outside other clones. It proves the collision, explicit-root
+# precedence, out-of-home-tree isolation, legacy-config preservation,
+# project-less aliasing avoidance, clean Git porcelain, and acquire-to-return
+# lifecycle under competing environment and project roots; fake spawn-harness
+# Treehouse stubs cannot cover those facts.
 set -u
 
 # shellcheck source=tests/fixtures.sh
@@ -100,26 +99,8 @@ prime_shared_pool() {
     || fail "fixture could not return the priming slot to the pool"
 }
 
-# run_ensure <project> <home>: fm_treehouse_ensure_isolated_pool in a subshell
-# with its own scratch FM_HOME and HOME, so sourcing bin/fm-wake-lib.sh never
-# touches this real worktree's own state/ directory (it mkdir -p's
-# $FM_HOME/state at source time), and fm_treehouse_pool_root's HOME-based
-# fallback never touches the operator's real machine state either.
-run_ensure() {
-  local project=$1 home=$2 xdg_state_home=${3-}
-  FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" HOME="$SCRATCH_HOME" \
-    XDG_STATE_HOME="$xdg_state_home" bash -c '
-    set -u
-    # shellcheck source=bin/fm-wake-lib.sh
-    . "$1"
-    fm_treehouse_ensure_isolated_pool "$2" "$3"
-  ' _ "$ROOT/bin/fm-wake-lib.sh" "$project" "$home"
-}
-
-# pool_root_for <project> <home> [xdg-state-home]: the same absolute pool root
-# fm_treehouse_ensure_isolated_pool writes for <project>, computed directly so
-# tests can pass it to `treehouse` explicitly - exactly how fm-spawn.sh's own
-# --root flag is built.
+# pool_root_for <project> <home> [xdg-state-home]: compute the same absolute
+# pool root fm-spawn.sh passes directly to `treehouse get --root`.
 pool_root_for() {
   local project=$1 home=$2 xdg_state_home=${3-}
   FM_HOME="$home" FM_STATE_OVERRIDE="$SCRATCH_HOME/helper-state" \
@@ -150,35 +131,16 @@ test_reproduces_cross_home_pool_collision() {
   pass "reproduced: an unmodified Treehouse pool hands a secondmate clone a slot linked to the root's own clone"
 }
 
-test_ensure_isolated_pool_is_noop_for_root_home() {
-  local rec out status
-  rec=$(make_case root-noop)
-  read_case "$rec"
-
-  out=$(run_ensure "$ROOT_CLONE" "$ROOT_HOME" 2>&1)
-  status=$?
-  expect_code 0 "$status" "fm_treehouse_ensure_isolated_pool should succeed for the root home"$'\n'"$out"
-  [ ! -e "$ROOT_CLONE/treehouse.toml" ] \
-    || fail "fm_treehouse_ensure_isolated_pool wrote a treehouse.toml for the root home; its pool location must never move"
-  pass "fm_treehouse_ensure_isolated_pool is a no-op for the root home's own clone"
-}
-
 test_pool_root_falls_back_from_relative_xdg_state_home() {
-  local rec out status hash pool_root slot
+  local rec hash pool_root slot
   rec=$(make_case relative-xdg)
   read_case "$rec"
 
-  out=$(run_ensure "$SECOND_CLONE" "$SECOND_HOME" relative-state 2>&1)
-  status=$?
-  expect_code 0 "$status" "a relative XDG_STATE_HOME should fall back to HOME/.local/state"$'\n'"$out"
   hash=$(printf '%s' "$SECOND_CLONE" | git hash-object --stdin)
   pool_root="$SCRATCH_HOME/.local/state/firstmate/treehouse-pools/$hash"
-  slot=$(
-    cd "$SECOND_CLONE" || exit 1
-    unset TREEHOUSE_ROOT
-    HOME="$SCRATCH_HOME" XDG_STATE_HOME=relative-state \
-      treehouse get --lease --lease-holder relative-xdg-task 2>/dev/null
-  )
+  [ "$(pool_root_for "$SECOND_CLONE" "$SECOND_HOME" relative-state)" = "$pool_root" ] \
+    || fail "relative XDG_STATE_HOME did not fall back to the absolute HOME-based pool"
+  slot=$(treehouse_pool "$SECOND_CLONE" get --root "$pool_root" --lease --lease-holder relative-xdg-task 2>/dev/null)
   [ -n "$slot" ] && [ -d "$slot" ] || fail "relative XDG_STATE_HOME fallback could not acquire a Treehouse slot"
   under_tree "$slot" "$pool_root" \
     || fail "relative XDG_STATE_HOME did not fall back to the absolute HOME-based pool: $slot"
@@ -187,15 +149,12 @@ test_pool_root_falls_back_from_relative_xdg_state_home() {
   pass "fm_treehouse_pool_root ignores a relative XDG_STATE_HOME"
 }
 
-test_ensure_isolated_pool_fixes_secondmate_collision() {
-  local rec out status pool_root slot root_status isolated_status
+test_explicit_isolated_pool_fixes_secondmate_collision() {
+  local rec pool_root slot root_status isolated_status
   rec=$(make_case fix-collision)
   read_case "$rec"
   prime_shared_pool
 
-  out=$(run_ensure "$SECOND_CLONE" "$SECOND_HOME" 2>&1)
-  status=$?
-  expect_code 0 "$status" "fm_treehouse_ensure_isolated_pool should isolate the secondmate's clone"$'\n'"$out"
   pool_root=$(pool_root_for "$SECOND_CLONE" "$SECOND_HOME")
   [ -n "$pool_root" ] || fail "could not compute the secondmate clone's isolated pool root"
 
@@ -212,123 +171,48 @@ test_ensure_isolated_pool_fixes_secondmate_collision() {
   isolated_status=$(treehouse_pool "$SECOND_CLONE" status --root "$pool_root" --json 2>/dev/null)
   assert_contains "$isolated_status" '"status":"available"' \
     "returned isolated slot did not become available in its own isolated pool"
-  pass "fm_treehouse_ensure_isolated_pool gives the secondmate clone its own pool without touching the root's"
+  pass "an explicit isolated root gives the secondmate clone its own pool without touching the root's"
 }
 
-test_ensure_isolated_pool_is_idempotent() {
-  local rec out status before after
-  rec=$(make_case idempotent)
+test_explicit_root_overrides_project_config_without_mutating_it() {
+  local rec config_pool pool_root slot porcelain
+  rec=$(make_case project-config)
   read_case "$rec"
-
-  out=$(run_ensure "$SECOND_CLONE" "$SECOND_HOME" 2>&1)
-  status=$?
-  expect_code 0 "$status" "first isolation call should succeed"$'\n'"$out"
-  before=$(cat "$SECOND_CLONE/treehouse.toml")
-
-  out=$(run_ensure "$SECOND_CLONE" "$SECOND_HOME" 2>&1)
-  status=$?
-  expect_code 0 "$status" "repeating the isolation call should be idempotent"$'\n'"$out"
-  after=$(cat "$SECOND_CLONE/treehouse.toml")
-  [ "$before" = "$after" ] || fail "repeating fm_treehouse_ensure_isolated_pool changed the existing config"
-  pass "fm_treehouse_ensure_isolated_pool is idempotent"
-}
-
-test_isolated_pool_config_round_trips_toml_special_characters() {
-  local rec special_state out status pool_root slot
-  rec=$(make_case toml-special-characters)
-  read_case "$rec"
-  special_state="$CASE_DIR/"'state\t"quoted'
-  mkdir -p "$special_state"
-
-  out=$(run_ensure "$SECOND_CLONE" "$SECOND_HOME" "$special_state" 2>&1)
-  status=$?
-  expect_code 0 "$status" "isolation should encode TOML-special path characters"$'\n'"$out"
-  out=$(run_ensure "$SECOND_CLONE" "$SECOND_HOME" "$special_state" 2>&1)
-  status=$?
-  expect_code 0 "$status" "the encoded isolation config should remain idempotent"$'\n'"$out"
-
-  pool_root=$(pool_root_for "$SECOND_CLONE" "$SECOND_HOME" "$special_state")
-  slot=$(
-    cd "$SECOND_CLONE" || exit 1
-    unset TREEHOUSE_ROOT
-    HOME="$SCRATCH_HOME" XDG_STATE_HOME="$special_state" \
-      treehouse get --lease --lease-holder toml-special-task 2>/dev/null
-  )
-  [ -n "$slot" ] && [ -d "$slot" ] \
-    || fail "Treehouse could not consume the encoded isolated-pool config"
-  under_tree "$slot" "$pool_root" \
-    || fail "Treehouse decoded the configured isolated pool to a different path: $slot"
-  treehouse_pool "$SECOND_CLONE" return --force "$slot" >/dev/null 2>&1 \
-    || fail "the TOML-special-path slot could not be returned"
-  pass "Treehouse resolves escaped backslashes and quotes to the exact isolated pool path"
-}
-
-test_ensure_isolated_pool_refuses_incompatible_existing_config() {
-  local rec out status
-  rec=$(make_case incompatible)
-  read_case "$rec"
-  printf 'root = "/custom/pool"\n' > "$SECOND_CLONE/treehouse.toml"
-
-  out=$(run_ensure "$SECOND_CLONE" "$SECOND_HOME" 2>&1)
-  status=$?
-  [ "$status" -ne 0 ] || fail "fm_treehouse_ensure_isolated_pool overwrote an existing treehouse.toml it did not recognize"
-  assert_contains "$out" "already exists" "refusal did not explain the pre-existing config"
-  [ "$(cat "$SECOND_CLONE/treehouse.toml")" = 'root = "/custom/pool"' ] \
-    || fail "fm_treehouse_ensure_isolated_pool modified a pre-existing config it should have left alone"
-  pass "fm_treehouse_ensure_isolated_pool refuses to overwrite an incompatible pre-existing treehouse.toml"
-}
-
-test_ensure_isolated_pool_refuses_tracked_legacy_config() {
-  local rec out status porcelain
-  rec=$(make_case tracked-legacy)
-  read_case "$rec"
-  printf 'root = "."\n' > "$SECOND_CLONE/treehouse.toml"
+  config_pool="$CASE_DIR/operator-pool"
+  printf 'root = "%s"\n' "$config_pool" > "$SECOND_CLONE/treehouse.toml"
   git -C "$SECOND_CLONE" add treehouse.toml
   git -C "$SECOND_CLONE" -c user.name='Firstmate Tests' -c user.email='tests@example.invalid' \
     commit -qm 'track project Treehouse config'
 
-  out=$(run_ensure "$SECOND_CLONE" "$SECOND_HOME" 2>&1)
-  status=$?
-  [ "$status" -ne 0 ] || fail "fm_treehouse_ensure_isolated_pool migrated a tracked legacy treehouse.toml"
-  assert_contains "$out" "tracked by Git" "refusal did not explain that the legacy config is project-owned"
+  pool_root=$(pool_root_for "$SECOND_CLONE" "$SECOND_HOME")
+  slot=$(treehouse_pool "$SECOND_CLONE" get --root "$pool_root" --lease --lease-holder project-config-task 2>/dev/null)
+  [ -n "$slot" ] && [ -d "$slot" ] || fail "explicit root could not acquire with a project config present"
+  under_tree "$slot" "$pool_root" \
+    || fail "project config overrode the explicit isolated root: $slot"
+  ! under_tree "$slot" "$config_pool" \
+    || fail "explicit root acquisition used the project-configured pool: $slot"
   porcelain=$(git -C "$SECOND_CLONE" status --porcelain)
-  [ -z "$porcelain" ] || fail "refusing tracked legacy config left the project dirty: $porcelain"
-  pass "fm_treehouse_ensure_isolated_pool leaves a tracked legacy treehouse.toml untouched"
+  [ -z "$porcelain" ] || fail "explicit root acquisition modified the tracked project config: $porcelain"
+  treehouse_pool "$SECOND_CLONE" return --force "$slot" >/dev/null 2>&1 \
+    || fail "the project-config override slot could not be returned"
+  pass "an explicit root overrides project config without modifying it"
 }
 
-test_ensure_isolated_pool_refuses_customized_untracked_legacy_config() {
-  local rec expected out status
-  rec=$(make_case customized-legacy)
-  read_case "$rec"
-  expected="$CASE_DIR/operator-treehouse.toml"
-  printf 'root = "."\n# operator-owned customization\n' > "$expected"
-  cp "$expected" "$SECOND_CLONE/treehouse.toml"
-
-  out=$(run_ensure "$SECOND_CLONE" "$SECOND_HOME" 2>&1)
-  status=$?
-  [ "$status" -ne 0 ] || fail "fm_treehouse_ensure_isolated_pool migrated a customized untracked legacy config"
-  assert_contains "$out" "refusing to overwrite" "refusal did not explain the customized legacy config"
-  cmp -s "$expected" "$SECOND_CLONE/treehouse.toml" \
-    || fail "fm_treehouse_ensure_isolated_pool modified the customized untracked legacy config"
-  pass "fm_treehouse_ensure_isolated_pool leaves customized untracked legacy configs untouched"
-}
-
-test_ensure_isolated_pool_keeps_project_clean_after_get() {
-  local rec out status pool_root slot porcelain
+test_explicit_isolated_pool_keeps_project_clean_after_get() {
+  local rec pool_root slot porcelain
   rec=$(make_case exclude)
   read_case "$rec"
 
-  out=$(run_ensure "$SECOND_CLONE" "$SECOND_HOME" 2>&1)
-  status=$?
-  expect_code 0 "$status" "isolation call should succeed"$'\n'"$out"
   pool_root=$(pool_root_for "$SECOND_CLONE" "$SECOND_HOME")
   slot=$(treehouse_pool "$SECOND_CLONE" get --root "$pool_root" --lease --lease-holder clean-project-task 2>/dev/null)
   [ -n "$slot" ] && [ -d "$slot" ] || fail "isolated secondmate clone could not draw a Treehouse slot"
+  [ ! -e "$SECOND_CLONE/treehouse.toml" ] \
+    || fail "explicit isolated acquisition created a project treehouse.toml"
   porcelain=$(git -C "$SECOND_CLONE" status --porcelain)
   [ -z "$porcelain" ] || fail "Treehouse isolation artifacts dirty the secondmate clone: $porcelain"
   treehouse_pool "$SECOND_CLONE" return --force "$slot" >/dev/null 2>&1 \
     || fail "isolated slot could not be returned after the clean-project check"
-  pass "Treehouse isolation config and pool state leave the secondmate clone clean"
+  pass "an explicit isolated pool leaves the secondmate clone clean"
 }
 
 # The regression this whole isolation exists to avoid now: PR #7's in-project
@@ -340,14 +224,11 @@ test_ensure_isolated_pool_keeps_project_clean_after_get() {
 # answers with an explicit decline that then wedges every later launch. The
 # isolated pool root, and the leased worktree Treehouse creates under it, must
 # never sit inside the home's own directory tree.
-test_ensure_isolated_pool_keeps_pool_outside_home_tree() {
-  local rec out status pool_root slot
+test_explicit_isolated_pool_stays_outside_home_tree() {
+  local rec pool_root slot
   rec=$(make_case outside-home)
   read_case "$rec"
 
-  out=$(run_ensure "$SECOND_CLONE" "$SECOND_HOME" 2>&1)
-  status=$?
-  expect_code 0 "$status" "isolation call should succeed"$'\n'"$out"
   pool_root=$(pool_root_for "$SECOND_CLONE" "$SECOND_HOME")
   [ -n "$pool_root" ] || fail "could not compute the secondmate clone's isolated pool root"
   ! under_tree "$pool_root" "$SECOND_HOME" \
@@ -363,16 +244,16 @@ test_ensure_isolated_pool_keeps_pool_outside_home_tree() {
     || fail "leased worktree sits inside the root home's own directory tree, inheriting its CLAUDE.md: $slot"
   treehouse_pool "$SECOND_CLONE" return --force "$slot" >/dev/null 2>&1 \
     || fail "isolated slot could not be returned after the outside-home-tree check"
-  pass "fm_treehouse_ensure_isolated_pool's pool root and leased worktrees stay outside the active and root homes"
+  pass "the explicit pool root and leased worktrees stay outside the active and root homes"
 }
 
 # A clone already carrying PR #7's legacy `root = "."` (with a live slot
-# leased under it) must migrate its config pointer to the new out-of-home-tree
-# root without disturbing that slot: `treehouse return` locates a slot from
-# the given path, never from the current config, so the old slot keeps
-# tearing down correctly even after the config changes underneath it.
-test_ensure_isolated_pool_migrates_legacy_in_project_config() {
-  local rec out status legacy_slot pool_root migrated_slot new_status
+# leased under it) must remain untouched while the explicit root acquires from
+# the new out-of-home-tree pool. `treehouse return` locates a slot from the
+# given path, never from the current config, so both slots still return to
+# their owning pools.
+test_explicit_root_bypasses_legacy_in_project_config() {
+  local rec legacy_slot pool_root isolated_slot legacy_status
   rec=$(make_case legacy-migrate)
   read_case "$rec"
 
@@ -384,30 +265,25 @@ test_ensure_isolated_pool_migrates_legacy_in_project_config() {
     *) fail "fixture did not reproduce the legacy in-project pool shape: $legacy_slot" ;;
   esac
 
-  out=$(run_ensure "$SECOND_CLONE" "$SECOND_HOME" 2>&1)
-  status=$?
-  expect_code 0 "$status" "migrating a legacy in-project config should succeed"$'\n'"$out"
   pool_root=$(pool_root_for "$SECOND_CLONE" "$SECOND_HOME")
-  migrated_slot=$(
-    cd "$SECOND_CLONE" || exit 1
-    unset TREEHOUSE_ROOT
-    HOME="$SCRATCH_HOME" treehouse get --lease --lease-holder migrated-task 2>/dev/null
-  )
-  [ -n "$migrated_slot" ] && [ -d "$migrated_slot" ] \
-    || fail "migrated project config could not acquire a Treehouse slot"
-  under_tree "$migrated_slot" "$pool_root" \
-    || fail "migrated project config acquired a slot outside the isolated pool root: $migrated_slot"
+  isolated_slot=$(treehouse_pool "$SECOND_CLONE" get --root "$pool_root" --lease --lease-holder isolated-task 2>/dev/null)
+  [ -n "$isolated_slot" ] && [ -d "$isolated_slot" ] \
+    || fail "explicit root could not acquire while the legacy config remained"
+  under_tree "$isolated_slot" "$pool_root" \
+    || fail "legacy project config overrode the explicit isolated root: $isolated_slot"
+  [ "$(cat "$SECOND_CLONE/treehouse.toml")" = 'root = "."' ] \
+    || fail "explicit isolated acquisition modified the legacy project config"
 
   [ -d "$legacy_slot" ] \
-    || fail "migrating the config pointer disturbed the already-leased legacy slot on disk: $legacy_slot"
+    || fail "explicit isolated acquisition disturbed the already-leased legacy slot on disk: $legacy_slot"
   treehouse_pool "$SECOND_CLONE" return --force "$legacy_slot" >/dev/null 2>&1 \
-    || fail "the legacy slot could not be returned after the config migrated - teardown would strand it"
-  new_status=$(treehouse_pool "$SECOND_CLONE" status --root . --json 2>/dev/null)
-  assert_contains "$new_status" '"status":"available"' \
+    || fail "the legacy slot could not be returned after explicit isolated acquisition"
+  legacy_status=$(treehouse_pool "$SECOND_CLONE" status --root . --json 2>/dev/null)
+  assert_contains "$legacy_status" '"status":"available"' \
     "returned legacy slot did not become available again in its own (legacy) in-project pool"
-  treehouse_pool "$SECOND_CLONE" return --force "$migrated_slot" >/dev/null 2>&1 \
-    || fail "the config-resolved migrated slot could not be returned"
-  pass "fm_treehouse_ensure_isolated_pool migrates a legacy in-project config while still returning its live slot"
+  treehouse_pool "$SECOND_CLONE" return --force "$isolated_slot" >/dev/null 2>&1 \
+    || fail "the explicit isolated slot could not be returned"
+  pass "an explicit root bypasses legacy project config without disturbing its live slot"
 }
 
 # A project-less secondmate home's crews take pooled worktrees of the home's
@@ -418,7 +294,7 @@ test_ensure_isolated_pool_migrates_legacy_in_project_config() {
 # one shared origin - could alias the SAME pool. Computing an absolute root
 # from each home's own resolved path, as fm_treehouse_pool_root does, never
 # depends on that relative resolution and so never aliases them.
-test_ensure_isolated_pool_avoids_projectless_home_aliasing() {
+test_pool_root_avoids_projectless_home_aliasing() {
   local case_dir seed home_a home_b root_a root_b slot_a slot_b
   case_dir="$TMP_ROOT/projectless"
   seed="$case_dir/seed"
@@ -469,17 +345,12 @@ test_ensure_isolated_pool_avoids_projectless_home_aliasing() {
 }
 
 test_reproduces_cross_home_pool_collision
-test_ensure_isolated_pool_is_noop_for_root_home
 test_pool_root_falls_back_from_relative_xdg_state_home
-test_ensure_isolated_pool_fixes_secondmate_collision
-test_ensure_isolated_pool_is_idempotent
-test_isolated_pool_config_round_trips_toml_special_characters
-test_ensure_isolated_pool_refuses_incompatible_existing_config
-test_ensure_isolated_pool_refuses_tracked_legacy_config
-test_ensure_isolated_pool_refuses_customized_untracked_legacy_config
-test_ensure_isolated_pool_keeps_project_clean_after_get
-test_ensure_isolated_pool_keeps_pool_outside_home_tree
-test_ensure_isolated_pool_migrates_legacy_in_project_config
-test_ensure_isolated_pool_avoids_projectless_home_aliasing
+test_explicit_isolated_pool_fixes_secondmate_collision
+test_explicit_root_overrides_project_config_without_mutating_it
+test_explicit_isolated_pool_keeps_project_clean_after_get
+test_explicit_isolated_pool_stays_outside_home_tree
+test_explicit_root_bypasses_legacy_in_project_config
+test_pool_root_avoids_projectless_home_aliasing
 
 echo "# all fm-treehouse-pool-isolation tests passed"

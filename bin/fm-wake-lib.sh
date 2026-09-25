@@ -1237,11 +1237,11 @@ fm_treehouse_project_lock_path() {  # <project-dir>
 # same project - not even a different Firstmate home's clone of the same
 # origin - can ever be handed this pool, and no relative "." resolution (which
 # Treehouse computes from the repository's git-discovered top level, not the
-# caller's cwd - see fm_treehouse_ensure_isolated_pool below) can alias two
-# different clones onto one location. Deliberately outside the active
+# caller's cwd) can alias two different clones onto one location. Deliberately outside the active
 # Firstmate home and its root home's directory tree, so neither home's
-# CLAUDE.md import is ever an ancestor of a leased worktree. Callers only
-# compute the path; `treehouse get` creates it.
+# CLAUDE.md import is ever an ancestor of a leased worktree. `fm-spawn.sh`
+# passes the result directly to `treehouse get --root`, which takes precedence
+# over both project config and TREEHOUSE_ROOT; `treehouse get` creates it.
 fm_treehouse_pool_root() {  # <project-dir>
   local project=$1 real hash base pool_root probe tail leaf resolved part active_home root_home
   real=$(CDPATH='' cd -- "$project" 2>/dev/null && pwd -P) || return 1
@@ -1342,122 +1342,6 @@ fm_treehouse_pool_root() {  # <project-dir>
     return 1
   }
   printf '%s\n' "$pool_root"
-}
-
-# Treehouse v2.3.0 names a shared-root pool from the repository basename and
-# origin rather than the clone that asks. Independent clones can therefore
-# receive slots linked to each other, which bin/fm-claude-trust.sh must refuse.
-#
-# An in-project `root = "."` (this function's original design) keeps the pool
-# at <repo>/.treehouse/, which does stop two clones aliasing one pool, but a
-# non-root home's clone always lives under <home>/projects/<project>, so that
-# in-project pool sits inside the home's own directory tree. Claude Code then
-# discovers the home's own CLAUDE.md as an ancestor of every leased worktree
-# and gates each first launch behind its external-imports prompt - which
-# `fm-control.sh interrupt`'s Escape was believed to dismiss harmlessly but,
-# on Claude Code 2.1.282, actually answers with an explicit decline that then
-# wedges every later launch for that project from that home. Routing through
-# fm_treehouse_pool_root's absolute, machine-global location instead keeps the
-# pool outside the active and root homes' trees, so neither home's CLAUDE.md is
-# ever an ancestor of a leased worktree and the prompt never renders.
-#
-# Only a home that is NOT the local root ever gets this. The root/primary
-# home's project clones keep Treehouse's ordinary default root untouched:
-# changing it would silently orphan whatever is already leased there under
-# the old location (a live pool can hold work in progress), so a pool is
-# never moved here, only isolated for a home that had no established pool
-# location worth preserving.
-#
-# A project clone that already carries the exact untracked one-line legacy
-# `root = "."` file from an earlier version of this isolation is migrated to
-# the new pool root in place: only the config pointer for FUTURE `treehouse get` calls
-# moves, never an already-leased slot. `treehouse return <path>` locates a
-# slot's pool from the given worktree path itself, never from this config, so a
-# slot already leased at the old in-project location keeps tearing down and
-# returning correctly after the config moves (verified empirically against a
-# real Treehouse pool: get --lease under the legacy config, rewrite the
-# config, then return the original path). A tracked legacy config and any
-# pre-existing config not already naming the current managed root are left
-# alone: fails closed, so a real project or operator config is never clobbered.
-fm_treehouse_ensure_isolated_pool() {  # <project-dir> <home>
-  local project=$1 home=$2 root_home toml exclude tmp ignore_status tracked_status pool_root toml_pool_root desired_line write
-  [ -d "$project" ] || return 1
-  home=$(CDPATH='' cd -- "$home" 2>/dev/null && pwd -P) || return 1
-  root_home=$(fm_firstmate_root_home "$home") || return 1
-  [ "$home" != "$root_home" ] || return 0
-  pool_root=$(fm_treehouse_pool_root "$project") || return 1
-  toml="$project/treehouse.toml"
-  toml_pool_root=${pool_root//\\/\\\\}
-  toml_pool_root=${toml_pool_root//\"/\\\"}
-  toml_pool_root=${toml_pool_root//$'\b'/\\b}
-  toml_pool_root=${toml_pool_root//$'\t'/\\t}
-  toml_pool_root=${toml_pool_root//$'\n'/\\n}
-  toml_pool_root=${toml_pool_root//$'\f'/\\f}
-  toml_pool_root=${toml_pool_root//$'\r'/\\r}
-  if printf '%s' "$toml_pool_root" | LC_ALL=C grep -q '[[:cntrl:]]'; then
-    echo "fm-wake-lib: isolated Treehouse pool root '$pool_root' contains a control character that cannot be written safely to $toml" >&2
-    return 1
-  fi
-  desired_line="root = \"$toml_pool_root\""
-  write=0
-  if [ -e "$toml" ] || [ -L "$toml" ]; then
-    if [ -f "$toml" ] && [ ! -L "$toml" ] && grep -qFx "$desired_line" "$toml" 2>/dev/null; then
-      : # already isolated at this project's current pool root; nothing to do
-    elif [ -f "$toml" ] && [ ! -L "$toml" ] \
-      && cmp -s "$toml" <(printf 'root = "."\n'); then
-      write=1 # legacy in-project isolation; migrate the config pointer only
-    else
-      echo "fm-wake-lib: $toml already exists without a Firstmate-managed root; refusing to overwrite it to isolate this home's Treehouse pool for $project - inspect it by hand" >&2
-      return 1
-    fi
-  else
-    write=1
-  fi
-  if [ "$write" -eq 1 ]; then
-    if git -C "$project" ls-files --error-unmatch -- treehouse.toml >/dev/null 2>&1; then
-      echo "fm-wake-lib: $toml is tracked by Git; refusing to overwrite an operator-owned project config to isolate this home's Treehouse pool" >&2
-      return 1
-    else
-      tracked_status=$?
-      if [ "$tracked_status" -ne 1 ]; then
-        echo "fm-wake-lib: could not determine whether $toml is tracked by Git; refusing to write it" >&2
-        return 1
-      fi
-    fi
-    tmp="$toml.tmp.${BASHPID:-$$}"
-    if printf '%s\n' "$desired_line" > "$tmp" 2>/dev/null \
-      && mv -f "$tmp" "$toml" 2>/dev/null; then
-      :
-    else
-      rm -f "$tmp" 2>/dev/null
-      return 1
-    fi
-  fi
-  # Fleet sync treats any untracked path as a dirty clone, so keep both local
-  # Treehouse artifacts out of Git porcelain while respecting existing rules.
-  # A legacy in-project .treehouse/ can still linger here until its last old
-  # slot is returned, so this stays ignored even though new slots now land
-  # outside the project entirely.
-  exclude=$(git -C "$project" rev-parse --path-format=absolute --git-path info/exclude 2>/dev/null) || return 1
-  mkdir -p "$(dirname "$exclude")" 2>/dev/null || return 1
-  if [ ! -f "$exclude" ]; then
-    : > "$exclude" 2>/dev/null || return 1
-  fi
-  if git -C "$project" check-ignore -q --no-index -- treehouse.toml 2>/dev/null; then
-    :
-  else
-    ignore_status=$?
-    [ "$ignore_status" -eq 1 ] || return 1
-    printf 'treehouse.toml\n' >> "$exclude" 2>/dev/null || return 1
-  fi
-  if git -C "$project" check-ignore -q --no-index -- .treehouse/ 2>/dev/null; then
-    :
-  else
-    ignore_status=$?
-    [ "$ignore_status" -eq 1 ] || return 1
-    printf '/.treehouse/\n' >> "$exclude" 2>/dev/null || return 1
-  fi
-  return 0
 }
 
 # A Treehouse slot has the managed pool's fixed <pool>/<slot>/<repo> layout.

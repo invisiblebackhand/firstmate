@@ -487,7 +487,7 @@ Enter to confirm · Esc to cancel
 
 `false` plus `shown=true` on the project entry is exactly the pair `bin/fm-claude-trust.sh` documents as an explicit human "No, disable" (see "Claude workspace trust" above), so Escape saved a real decline rather than merely closing the dialog.
 The worktree entry staying `null`/`null` matches `bin/fm-claude-trust.sh`'s own documented mechanism: "the external-imports check ... reads ONLY the canonical project-root entry" reached by Claude Code's own git-root canonicalization, which walks a linked worktree's `.git` file through its `commondir` pointer back to the primary checkout - so the live dialog reads and writes that same canonical entry, not the worktree's own.
-`bin/fm-claude-trust.sh` then correctly refused to overwrite that decline on every later launch for that project from that home, matching its documented consent-gating contract - the dialog itself was the bug (see fm_treehouse_ensure_isolated_pool in `bin/fm-wake-lib.sh`), not the trust script's refusal.
+`bin/fm-claude-trust.sh` then correctly refused to overwrite that decline on every later launch for that project from that home, matching its documented consent-gating contract - the dialog itself was the bug (see the explicit isolated root in `bin/fm-spawn.sh`), not the trust script's refusal.
 The harness-adapters Claude reference was corrected the same day to state this instead of the earlier "dismisses without answering" claim; that earlier claim is what this entry supersedes, and any future doubt about Escape's effect on either Claude dialog should be settled the same way - a live pane, its rendered text, and the resulting `.claude.json` flags - rather than assumed.
 
 The brief for this fix also raised a counter-observation worth settling here, since it bears on why relocating the pool outside a home's directory tree is a sufficient fix: a Claude scout launched from a project-less home into `<root-home>/.treehouse/firstmate-bfd564/1/firstmate` - itself physically nested inside the root home's own directory tree, whose `CLAUDE.md` imports `@AGENTS.md` - got no import prompt.
@@ -510,8 +510,8 @@ No automated guard pins this: it is an interactive-dialog observation of the kin
 # Legacy in-home slot (the PR #7 shape):
 ( cd <scratch-clone> && printf 'root = "."\n' > treehouse.toml && treehouse get --root . )
 # A slot under this fix's pool root:
-( . bin/fm-wake-lib.sh && fm_treehouse_ensure_isolated_pool <scratch-clone> <scratch-home>
-  treehouse get --root "$(fm_treehouse_pool_root <scratch-clone>)" )
+( export FM_HOME=<scratch-home>; . bin/fm-wake-lib.sh
+  cd <scratch-clone> && treehouse get --root "$(fm_treehouse_pool_root "$PWD")" )
 # In each resulting worktree:
 CLAUDE_CONFIG_DIR=<scratch-config-dir> claude --dangerously-skip-permissions
 ```
