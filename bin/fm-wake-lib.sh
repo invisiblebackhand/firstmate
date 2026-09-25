@@ -1368,19 +1368,19 @@ fm_treehouse_pool_root() {  # <project-dir>
 # never moved here, only isolated for a home that had no established pool
 # location worth preserving.
 #
-# A project clone that already carries the legacy in-project `root = "."`
-# from an earlier version of this isolation is migrated to the new pool root
-# in place: only the config pointer for FUTURE `treehouse get` calls moves,
-# never an already-leased slot. `treehouse return <path>` locates a slot's
-# pool from the given worktree path itself, never from this config, so a slot
-# already leased at the old in-project location keeps tearing down and
+# A project clone that already carries the untracked legacy in-project
+# `root = "."` from an earlier version of this isolation is migrated to the new
+# pool root in place: only the config pointer for FUTURE `treehouse get` calls
+# moves, never an already-leased slot. `treehouse return <path>` locates a
+# slot's pool from the given worktree path itself, never from this config, so a
+# slot already leased at the old in-project location keeps tearing down and
 # returning correctly after the config moves (verified empirically against a
 # real Treehouse pool: get --lease under the legacy config, rewrite the
-# config, then return the original path). Any other pre-existing config is
-# left alone: fails closed, so a real project or operator config is never
-# clobbered.
+# config, then return the original path). A tracked legacy config and any
+# pre-existing config not already naming the current managed root are left
+# alone: fails closed, so a real project or operator config is never clobbered.
 fm_treehouse_ensure_isolated_pool() {  # <project-dir> <home>
-  local project=$1 home=$2 root_home toml exclude tmp ignore_status pool_root desired_line write
+  local project=$1 home=$2 root_home toml exclude tmp ignore_status tracked_status pool_root desired_line write
   [ -d "$project" ] || return 1
   home=$(CDPATH='' cd -- "$home" 2>/dev/null && pwd -P) || return 1
   root_home=$(fm_firstmate_root_home "$home") || return 1
@@ -1402,6 +1402,16 @@ fm_treehouse_ensure_isolated_pool() {  # <project-dir> <home>
     write=1
   fi
   if [ "$write" -eq 1 ]; then
+    if git -C "$project" ls-files --error-unmatch -- treehouse.toml >/dev/null 2>&1; then
+      echo "fm-wake-lib: $toml is tracked by Git; refusing to overwrite an operator-owned project config to isolate this home's Treehouse pool" >&2
+      return 1
+    else
+      tracked_status=$?
+      if [ "$tracked_status" -ne 1 ]; then
+        echo "fm-wake-lib: could not determine whether $toml is tracked by Git; refusing to write it" >&2
+        return 1
+      fi
+    fi
     tmp="$toml.tmp.${BASHPID:-$$}"
     if printf '%s\n' "$desired_line" > "$tmp" 2>/dev/null \
       && mv -f "$tmp" "$toml" 2>/dev/null; then

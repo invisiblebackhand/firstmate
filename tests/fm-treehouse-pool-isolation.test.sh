@@ -247,6 +247,24 @@ test_ensure_isolated_pool_refuses_incompatible_existing_config() {
   pass "fm_treehouse_ensure_isolated_pool refuses to overwrite an incompatible pre-existing treehouse.toml"
 }
 
+test_ensure_isolated_pool_refuses_tracked_legacy_config() {
+  local rec out status porcelain
+  rec=$(make_case tracked-legacy)
+  read_case "$rec"
+  printf 'root = "."\n' > "$SECOND_CLONE/treehouse.toml"
+  git -C "$SECOND_CLONE" add treehouse.toml
+  git -C "$SECOND_CLONE" -c user.name='Firstmate Tests' -c user.email='tests@example.invalid' \
+    commit -qm 'track project Treehouse config'
+
+  out=$(run_ensure "$SECOND_CLONE" "$SECOND_HOME" 2>&1)
+  status=$?
+  [ "$status" -ne 0 ] || fail "fm_treehouse_ensure_isolated_pool migrated a tracked legacy treehouse.toml"
+  assert_contains "$out" "tracked by Git" "refusal did not explain that the legacy config is project-owned"
+  porcelain=$(git -C "$SECOND_CLONE" status --porcelain)
+  [ -z "$porcelain" ] || fail "refusing tracked legacy config left the project dirty: $porcelain"
+  pass "fm_treehouse_ensure_isolated_pool leaves a tracked legacy treehouse.toml untouched"
+}
+
 test_ensure_isolated_pool_keeps_project_clean_after_get() {
   local rec out status pool_root slot porcelain
   rec=$(make_case exclude)
@@ -408,6 +426,7 @@ test_pool_root_falls_back_from_relative_xdg_state_home
 test_ensure_isolated_pool_fixes_secondmate_collision
 test_ensure_isolated_pool_is_idempotent
 test_ensure_isolated_pool_refuses_incompatible_existing_config
+test_ensure_isolated_pool_refuses_tracked_legacy_config
 test_ensure_isolated_pool_keeps_project_clean_after_get
 test_ensure_isolated_pool_keeps_pool_outside_home_tree
 test_ensure_isolated_pool_migrates_legacy_in_project_config
