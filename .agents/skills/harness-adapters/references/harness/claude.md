@@ -29,10 +29,16 @@ When the project entry instead already carries an explicit decline (`hasClaudeMd
 Both flags `false` is Claude Code's default entry for a project never asked, not a decline, and is treated like an absent flag: trust registers and the import dialog still renders.
 The why-two-entries mechanism and the consent-gating logic live in the script's own header comment, which is the one owner for that contract; the fact worth repeating here is that `../../../bin/fm-spawn.sh` refuses the spawn when the trust flag fails to land, rather than launching a worker that would wedge on that dialog.
 
-Never try to answer either dialog with a key.
+Never try to deliberately ACCEPT either dialog with a key.
 Firstmate's key plane carries only Enter, Escape, and C-c with no arrow navigation, so it cannot move a dialog's selection at all, and both dialogs render with the cursor on their declining option, which means a sent Enter ends the session instead of accepting.
 A visible trust dialog means pre-registration did not take effect (or the project entry already carries an explicit decline) - inspect the store and the spawn's error output rather than sending keys.
-A visible external-imports dialog is expected, not a failure signal, whenever the project entry has no prior explicit approval on record - the common first-spawn case; `fm-control.sh <id> interrupt` delivers Escape, which dismisses whichever of the two is on screen without answering it, and is the safe way to clear a wedged pane for inspection.
+A visible external-imports dialog is expected, not a failure signal, whenever the project entry has no prior explicit approval on record - the common first-spawn case.
+Escape is NOT a harmless dismissal for that dialog, though.
+Verified 2026-09-24 on Claude Code 2.1.282: `fm-control.sh <id> interrupt`'s Escape answers the external-imports dialog by saving an explicit decline on the project entry (`hasClaudeMdExternalIncludesApproved=false`, `hasClaudeMdExternalIncludesWarningShown=true`), the same pair `../../../bin/fm-claude-trust.sh` treats as a human "No, disable" and refuses to overwrite on every later registration, wedging every later launch for that project from that home.
+The isolated pool prevents this incident from recurring: `../../../bin/fm-spawn.sh` passes `fm_treehouse_pool_root` from `../../../bin/fm-wake-lib.sh` directly to `treehouse get --root` so a non-root home's own `CLAUDE.md` (`@AGENTS.md`) cannot be an ancestor of its leased worktree.
+Other external import sources can still render the dialog, and there is no key that clears a wedged pane without answering it.
+If the dialog is already on screen, inspect it and escalate rather than sending Escape to "clear" it - the resulting decline is a real, sticky outcome, not a no-op.
+The trust dialog's own Escape behavior is unverified; do not assume it is dismiss-only either without the same kind of check.
 
 The once-per-machine bypass-permissions confirmation is a third, separate dialog, scoped to the machine rather than the path, and pre-registration does not address it.
 Never send Enter to that one either: it was observed rendering in the same shape as the trust dialog, with the selection on `No, exit` and the footer `Enter to confirm . Esc to cancel`, so Enter ends the session rather than accepting.

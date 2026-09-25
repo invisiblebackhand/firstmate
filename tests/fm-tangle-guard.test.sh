@@ -252,7 +252,7 @@ run_spawn_record() {
 }
 
 test_spawn_tmux_window_construction() {
-  local home root_home proj fakebin rec wt out status
+  local home root_home proj fakebin rec wt out status pool_hash pool_root
   home="$TMP_ROOT/spawn-rec-home"
   mkdir -p "$home/data"
   proj=$(make_repo "$TMP_ROOT/spawn-rec-proj")
@@ -294,13 +294,35 @@ route=local
 parent_home=$root_home
 EOF
   : > "$rec"
-  out=$(TREEHOUSE_ROOT="$TMP_ROOT/competing-treehouse-root" \
+  out=$(XDG_STATE_HOME="$TMP_ROOT/spawn-rec-xdg-state" TREEHOUSE_ROOT="$TMP_ROOT/competing-treehouse-root" \
     run_spawn_record "$home" rec-pool-hh8 "$proj" "$wt" "$fakebin" "$rec")
   status=$?
   expect_code 0 "$status" "spawn from a non-root home should succeed with a competing TREEHOUSE_ROOT"
   assert_contains "$out" "spawned rec-pool-hh8" "non-root recording spawn did not report success"
-  assert_grep "send-keys -t @spawnwid treehouse get --root . Enter" "$rec" \
-    "non-root spawn did not force its in-project Treehouse pool"
+  pool_hash=$(printf '%s' "$proj" | git -C "$proj" hash-object --stdin)
+  pool_root="$TMP_ROOT/spawn-rec-xdg-state/firstmate/treehouse-pools/$pool_hash"
+  assert_grep "send-keys -t @spawnwid treehouse get --root '$pool_root' Enter" "$rec" \
+    "non-root spawn did not force its absolute isolated Treehouse pool"
+
+  : > "$rec"
+  pool_root="$home/xdg-state/firstmate/treehouse-pools/$pool_hash"
+  out=$(XDG_STATE_HOME="$home/xdg-state" TREEHOUSE_ROOT="$TMP_ROOT/competing-treehouse-root" \
+    run_spawn_record "$home" rec-pool-inside-active-ii9 "$proj" "$wt" "$fakebin" "$rec")
+  status=$?
+  [ "$status" -ne 0 ] || fail "spawn accepted a Treehouse pool inside the active Firstmate home"
+  assert_contains "$out" "$pool_root" "active-home pool refusal did not name the rejected path"
+  assert_contains "$out" "inside active Firstmate home" "spawn did not explain the active-home pool refusal"
+  assert_no_grep "treehouse get" "$rec" "spawn launched Treehouse after rejecting a pool inside the active home"
+
+  : > "$rec"
+  pool_root="$root_home/xdg-state/firstmate/treehouse-pools/$pool_hash"
+  out=$(XDG_STATE_HOME="$root_home/xdg-state" TREEHOUSE_ROOT="$TMP_ROOT/competing-treehouse-root" \
+    run_spawn_record "$home" rec-pool-inside-root-jj0 "$proj" "$wt" "$fakebin" "$rec")
+  status=$?
+  [ "$status" -ne 0 ] || fail "spawn accepted a Treehouse pool inside the root Firstmate home"
+  assert_contains "$out" "$pool_root" "root-home pool refusal did not name the rejected path"
+  assert_contains "$out" "inside root Firstmate home" "spawn did not explain the root-home pool refusal"
+  assert_no_grep "treehouse get" "$rec" "spawn launched Treehouse after rejecting a pool inside the root home"
 
   pass "fm-spawn pins window identity and forces non-root pool isolation"
 }
