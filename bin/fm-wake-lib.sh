@@ -1368,9 +1368,9 @@ fm_treehouse_pool_root() {  # <project-dir>
 # never moved here, only isolated for a home that had no established pool
 # location worth preserving.
 #
-# A project clone that already carries the untracked legacy in-project
-# `root = "."` from an earlier version of this isolation is migrated to the new
-# pool root in place: only the config pointer for FUTURE `treehouse get` calls
+# A project clone that already carries the exact untracked one-line legacy
+# `root = "."` file from an earlier version of this isolation is migrated to
+# the new pool root in place: only the config pointer for FUTURE `treehouse get` calls
 # moves, never an already-leased slot. `treehouse return <path>` locates a
 # slot's pool from the given worktree path itself, never from this config, so a
 # slot already leased at the old in-project location keeps tearing down and
@@ -1403,7 +1403,8 @@ fm_treehouse_ensure_isolated_pool() {  # <project-dir> <home>
   if [ -e "$toml" ] || [ -L "$toml" ]; then
     if [ -f "$toml" ] && [ ! -L "$toml" ] && grep -qFx "$desired_line" "$toml" 2>/dev/null; then
       : # already isolated at this project's current pool root; nothing to do
-    elif [ -f "$toml" ] && [ ! -L "$toml" ] && grep -qFx 'root = "."' "$toml" 2>/dev/null; then
+    elif [ -f "$toml" ] && [ ! -L "$toml" ] \
+      && cmp -s "$toml" <(printf 'root = "."\n'); then
       write=1 # legacy in-project isolation; migrate the config pointer only
     else
       echo "fm-wake-lib: $toml already exists without a Firstmate-managed root; refusing to overwrite it to isolate this home's Treehouse pool for $project - inspect it by hand" >&2

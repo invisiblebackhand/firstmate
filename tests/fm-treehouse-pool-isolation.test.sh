@@ -296,6 +296,23 @@ test_ensure_isolated_pool_refuses_tracked_legacy_config() {
   pass "fm_treehouse_ensure_isolated_pool leaves a tracked legacy treehouse.toml untouched"
 }
 
+test_ensure_isolated_pool_refuses_customized_untracked_legacy_config() {
+  local rec expected out status
+  rec=$(make_case customized-legacy)
+  read_case "$rec"
+  expected="$CASE_DIR/operator-treehouse.toml"
+  printf 'root = "."\n# operator-owned customization\n' > "$expected"
+  cp "$expected" "$SECOND_CLONE/treehouse.toml"
+
+  out=$(run_ensure "$SECOND_CLONE" "$SECOND_HOME" 2>&1)
+  status=$?
+  [ "$status" -ne 0 ] || fail "fm_treehouse_ensure_isolated_pool migrated a customized untracked legacy config"
+  assert_contains "$out" "refusing to overwrite" "refusal did not explain the customized legacy config"
+  cmp -s "$expected" "$SECOND_CLONE/treehouse.toml" \
+    || fail "fm_treehouse_ensure_isolated_pool modified the customized untracked legacy config"
+  pass "fm_treehouse_ensure_isolated_pool leaves customized untracked legacy configs untouched"
+}
+
 test_ensure_isolated_pool_keeps_project_clean_after_get() {
   local rec out status pool_root slot porcelain
   rec=$(make_case exclude)
@@ -459,6 +476,7 @@ test_ensure_isolated_pool_is_idempotent
 test_isolated_pool_config_round_trips_toml_special_characters
 test_ensure_isolated_pool_refuses_incompatible_existing_config
 test_ensure_isolated_pool_refuses_tracked_legacy_config
+test_ensure_isolated_pool_refuses_customized_untracked_legacy_config
 test_ensure_isolated_pool_keeps_project_clean_after_get
 test_ensure_isolated_pool_keeps_pool_outside_home_tree
 test_ensure_isolated_pool_migrates_legacy_in_project_config
