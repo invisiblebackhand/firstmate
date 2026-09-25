@@ -282,7 +282,7 @@ test_ensure_isolated_pool_keeps_pool_outside_home_tree() {
 # the given path, never from the current config, so the old slot keeps
 # tearing down correctly even after the config changes underneath it.
 test_ensure_isolated_pool_migrates_legacy_in_project_config() {
-  local rec out status legacy_slot pool_root new_status
+  local rec out status legacy_slot pool_root migrated_slot new_status
   rec=$(make_case legacy-migrate)
   read_case "$rec"
 
@@ -298,8 +298,15 @@ test_ensure_isolated_pool_migrates_legacy_in_project_config() {
   status=$?
   expect_code 0 "$status" "migrating a legacy in-project config should succeed"$'\n'"$out"
   pool_root=$(pool_root_for "$SECOND_CLONE")
-  [ "$(cat "$SECOND_CLONE/treehouse.toml")" = "root = \"$pool_root\"" ] \
-    || fail "legacy root = \".\" config was not migrated to the out-of-home-tree pool root"
+  migrated_slot=$(
+    cd "$SECOND_CLONE" || exit 1
+    unset TREEHOUSE_ROOT
+    HOME="$SCRATCH_HOME" treehouse get --lease --lease-holder migrated-task 2>/dev/null
+  )
+  [ -n "$migrated_slot" ] && [ -d "$migrated_slot" ] \
+    || fail "migrated project config could not acquire a Treehouse slot"
+  under_tree "$migrated_slot" "$pool_root" \
+    || fail "migrated project config acquired a slot outside the isolated pool root: $migrated_slot"
 
   [ -d "$legacy_slot" ] \
     || fail "migrating the config pointer disturbed the already-leased legacy slot on disk: $legacy_slot"
@@ -308,6 +315,8 @@ test_ensure_isolated_pool_migrates_legacy_in_project_config() {
   new_status=$(treehouse_pool "$SECOND_CLONE" status --root . --json 2>/dev/null)
   assert_contains "$new_status" '"status":"available"' \
     "returned legacy slot did not become available again in its own (legacy) in-project pool"
+  treehouse_pool "$SECOND_CLONE" return --force "$migrated_slot" >/dev/null 2>&1 \
+    || fail "the config-resolved migrated slot could not be returned"
   pass "fm_treehouse_ensure_isolated_pool migrates a legacy in-project config while still returning its live slot"
 }
 

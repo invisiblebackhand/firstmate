@@ -463,9 +463,9 @@ That warning rendered in the same shape as the trust dialog, with the selection 
 That gate is not a production blocker, because a normal environment has already accepted it and the treatment arm above ran against the real config and saw neither dialog.
 This change does not address that warning and does not claim to.
 
-### 2026-09-25 external-imports dialog: Escape answers it, does not merely dismiss it
+### 2026-09-24 external-imports dialog: Escape answers it, does not merely dismiss it
 
-Verified 2026-09-25 on Claude Code 2.1.282, from a live non-root secondmate home spawn (`data/queue-release-2026-09-25.md` in that home) whose worker's leased worktree had come to sit inside the home's own directory tree under PR #7's original in-project `root = "."` isolation, so the home's own `CLAUDE.md` (`@AGENTS.md`) was an ancestor of the worker's cwd.
+Verified 2026-09-24 on Claude Code 2.1.282, from a live non-root secondmate home spawn (`data/queue-release-2026-09-24.md` in that home) whose worker's leased worktree had come to sit inside the home's own directory tree under PR #7's original in-project `root = "."` isolation, so the home's own `CLAUDE.md` (`@AGENTS.md`) was an ancestor of the worker's cwd.
 
 ```
 Allow external CLAUDE.md file imports?
@@ -478,7 +478,7 @@ Enter to confirm · Esc to cancel
 ```
 
 `fm-control.sh <id> interrupt` delivered a single Escape, per the harness-adapters Claude reference's then-current claim that Escape "dismisses whichever of the two is on screen without answering it".
-`${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json` afterward, `jq` over `.projects` (flags only), exactly as `data/queue-release-2026-09-25.md` recorded them - the worktree entry (the pane's own cwd) and the canonical project entry are NOT the same, and only the project entry carries the decline:
+`${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json` afterward, `jq` over `.projects` (flags only), exactly as `data/queue-release-2026-09-24.md` recorded them - the worktree entry (the pane's own cwd) and the canonical project entry are NOT the same, and only the project entry carries the decline:
 
 ```
 <home>/projects/research-kb                                                  trust=true extApproved=false extShown=true
@@ -490,15 +490,15 @@ The worktree entry staying `null`/`null` matches `bin/fm-claude-trust.sh`'s own 
 `bin/fm-claude-trust.sh` then correctly refused to overwrite that decline on every later launch for that project from that home, matching its documented consent-gating contract - the dialog itself was the bug (see fm_treehouse_ensure_isolated_pool in `bin/fm-wake-lib.sh`), not the trust script's refusal.
 The harness-adapters Claude reference was corrected the same day to state this instead of the earlier "dismisses without answering" claim; that earlier claim is what this entry supersedes, and any future doubt about Escape's effect on either Claude dialog should be settled the same way - a live pane, its rendered text, and the resulting `.claude.json` flags - rather than assumed.
 
-The brief for this fix also raised a counter-observation worth settling here, since it bears on why relocating the pool outside a home's directory tree is a sufficient fix: a Claude scout launched from a project-less home into `/Users/noahvonmaur/firstmate/.treehouse/firstmate-bfd564/1/firstmate` - itself physically nested inside the root home's own directory tree, whose `CLAUDE.md` imports `@AGENTS.md` - got no import prompt.
-Re-querying that same real entry from `~/.claude.json` on 2026-09-25 (read-only; `jq`-equivalent field read, no file copied) still shows it unasked, not merely unrestated:
+The brief for this fix also raised a counter-observation worth settling here, since it bears on why relocating the pool outside a home's directory tree is a sufficient fix: a Claude scout launched from a project-less home into `<root-home>/.treehouse/firstmate-bfd564/1/firstmate` - itself physically nested inside the root home's own directory tree, whose `CLAUDE.md` imports `@AGENTS.md` - got no import prompt.
+Re-querying that same real entry from `~/.claude.json` on 2026-09-24 (read-only; `jq`-equivalent field read, no file copied) still shows it unasked, not merely unrestated:
 
 ```
-/Users/noahvonmaur/firstmate/.treehouse/firstmate-bfd564/1/firstmate    trust=true extApproved=null extShown=null
+<root-home>/.treehouse/firstmate-bfd564/1/firstmate    trust=true extApproved=null extShown=null
 ```
 
 `null`/`null`, not an approval, so the dialog was never triggered there at all - it is not that Claude silently approved a same-repo import.
-The mechanism above explains this without contradiction: that worktree's own canonical primary checkout, reached by the same git-common-dir walk, IS `/Users/noahvonmaur/firstmate` itself (a project-less home's leased worktree is a linked worktree of that exact repo), so the `CLAUDE.md` sitting at `/Users/noahvonmaur/firstmate` is the canonical project root's own file, not an import reaching outside it - "outside the project tree" is evaluated against the canonical primary checkout, not the worktree's raw filesystem ancestors.
+The mechanism above explains this without contradiction: that worktree's own canonical primary checkout, reached by the same git-common-dir walk, IS `<root-home>` itself (a project-less home's leased worktree is a linked worktree of that exact repo), so the `CLAUDE.md` sitting at `<root-home>` is the canonical project root's own file, not an import reaching outside it - "outside the project tree" is evaluated against the canonical primary checkout, not the worktree's raw filesystem ancestors.
 For a non-root home's ordinary project crew spawn (the bug this fix addresses), the canonical primary checkout is the project clone itself - a different repository from the home - so the home's `CLAUDE.md` genuinely sits outside it regardless of physical nesting, which is why that case renders the prompt and the project-less case does not.
 Relocating the pool outside every home's directory tree, as this fix does, does not depend on resolving that distinction correctly: it removes the ancestor `CLAUDE.md` from the filesystem walk entirely, so there is nothing left for either mechanism to classify.
 
