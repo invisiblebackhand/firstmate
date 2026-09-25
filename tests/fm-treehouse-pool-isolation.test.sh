@@ -116,13 +116,14 @@ run_ensure() {
   ' _ "$ROOT/bin/fm-wake-lib.sh" "$project" "$home"
 }
 
-# pool_root_for <project> <home>: the same absolute pool root fm_treehouse_ensure_isolated_pool
-# writes for <project>, computed directly so tests can pass it to `treehouse`
-# explicitly - exactly how fm-spawn.sh's own --root flag is built.
+# pool_root_for <project> <home> [xdg-state-home]: the same absolute pool root
+# fm_treehouse_ensure_isolated_pool writes for <project>, computed directly so
+# tests can pass it to `treehouse` explicitly - exactly how fm-spawn.sh's own
+# --root flag is built.
 pool_root_for() {
-  local project=$1 home=$2
+  local project=$1 home=$2 xdg_state_home=${3-}
   FM_HOME="$home" FM_STATE_OVERRIDE="$SCRATCH_HOME/helper-state" \
-    HOME="$SCRATCH_HOME" XDG_STATE_HOME='' bash -c '
+    HOME="$SCRATCH_HOME" XDG_STATE_HOME="$xdg_state_home" bash -c '
     set -u
     # shellcheck source=bin/fm-wake-lib.sh
     . "$1"
@@ -230,6 +231,36 @@ test_ensure_isolated_pool_is_idempotent() {
   after=$(cat "$SECOND_CLONE/treehouse.toml")
   [ "$before" = "$after" ] || fail "repeating fm_treehouse_ensure_isolated_pool changed the existing config"
   pass "fm_treehouse_ensure_isolated_pool is idempotent"
+}
+
+test_isolated_pool_config_round_trips_toml_special_characters() {
+  local rec special_state out status pool_root slot
+  rec=$(make_case toml-special-characters)
+  read_case "$rec"
+  special_state="$CASE_DIR/"'state\t"quoted'
+  mkdir -p "$special_state"
+
+  out=$(run_ensure "$SECOND_CLONE" "$SECOND_HOME" "$special_state" 2>&1)
+  status=$?
+  expect_code 0 "$status" "isolation should encode TOML-special path characters"$'\n'"$out"
+  out=$(run_ensure "$SECOND_CLONE" "$SECOND_HOME" "$special_state" 2>&1)
+  status=$?
+  expect_code 0 "$status" "the encoded isolation config should remain idempotent"$'\n'"$out"
+
+  pool_root=$(pool_root_for "$SECOND_CLONE" "$SECOND_HOME" "$special_state")
+  slot=$(
+    cd "$SECOND_CLONE" || exit 1
+    unset TREEHOUSE_ROOT
+    HOME="$SCRATCH_HOME" XDG_STATE_HOME="$special_state" \
+      treehouse get --lease --lease-holder toml-special-task 2>/dev/null
+  )
+  [ -n "$slot" ] && [ -d "$slot" ] \
+    || fail "Treehouse could not consume the encoded isolated-pool config"
+  under_tree "$slot" "$pool_root" \
+    || fail "Treehouse decoded the configured isolated pool to a different path: $slot"
+  treehouse_pool "$SECOND_CLONE" return --force "$slot" >/dev/null 2>&1 \
+    || fail "the TOML-special-path slot could not be returned"
+  pass "Treehouse resolves escaped backslashes and quotes to the exact isolated pool path"
 }
 
 test_ensure_isolated_pool_refuses_incompatible_existing_config() {
@@ -425,6 +456,7 @@ test_ensure_isolated_pool_is_noop_for_root_home
 test_pool_root_falls_back_from_relative_xdg_state_home
 test_ensure_isolated_pool_fixes_secondmate_collision
 test_ensure_isolated_pool_is_idempotent
+test_isolated_pool_config_round_trips_toml_special_characters
 test_ensure_isolated_pool_refuses_incompatible_existing_config
 test_ensure_isolated_pool_refuses_tracked_legacy_config
 test_ensure_isolated_pool_keeps_project_clean_after_get

@@ -1380,14 +1380,25 @@ fm_treehouse_pool_root() {  # <project-dir>
 # pre-existing config not already naming the current managed root are left
 # alone: fails closed, so a real project or operator config is never clobbered.
 fm_treehouse_ensure_isolated_pool() {  # <project-dir> <home>
-  local project=$1 home=$2 root_home toml exclude tmp ignore_status tracked_status pool_root desired_line write
+  local project=$1 home=$2 root_home toml exclude tmp ignore_status tracked_status pool_root toml_pool_root desired_line write
   [ -d "$project" ] || return 1
   home=$(CDPATH='' cd -- "$home" 2>/dev/null && pwd -P) || return 1
   root_home=$(fm_firstmate_root_home "$home") || return 1
   [ "$home" != "$root_home" ] || return 0
   pool_root=$(fm_treehouse_pool_root "$project") || return 1
   toml="$project/treehouse.toml"
-  desired_line="root = \"$pool_root\""
+  toml_pool_root=${pool_root//\\/\\\\}
+  toml_pool_root=${toml_pool_root//\"/\\\"}
+  toml_pool_root=${toml_pool_root//$'\b'/\\b}
+  toml_pool_root=${toml_pool_root//$'\t'/\\t}
+  toml_pool_root=${toml_pool_root//$'\n'/\\n}
+  toml_pool_root=${toml_pool_root//$'\f'/\\f}
+  toml_pool_root=${toml_pool_root//$'\r'/\\r}
+  if printf '%s' "$toml_pool_root" | LC_ALL=C grep -q '[[:cntrl:]]'; then
+    echo "fm-wake-lib: isolated Treehouse pool root '$pool_root' contains a control character that cannot be written safely to $toml" >&2
+    return 1
+  fi
+  desired_line="root = \"$toml_pool_root\""
   write=0
   if [ -e "$toml" ] || [ -L "$toml" ]; then
     if [ -f "$toml" ] && [ ! -L "$toml" ] && grep -qFx "$desired_line" "$toml" 2>/dev/null; then
