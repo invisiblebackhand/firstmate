@@ -1238,16 +1238,110 @@ fm_treehouse_project_lock_path() {  # <project-dir>
 # origin - can ever be handed this pool, and no relative "." resolution (which
 # Treehouse computes from the repository's git-discovered top level, not the
 # caller's cwd - see fm_treehouse_ensure_isolated_pool below) can alias two
-# different clones onto one location. Deliberately outside every Firstmate
-# home's own directory tree, root and secondmate alike, so no home's CLAUDE.md
-# import is ever an ancestor of a leased worktree. Callers only compute the
-# path; `treehouse get` creates it.
+# different clones onto one location. Deliberately outside the active
+# Firstmate home and its root home's directory tree, so neither home's
+# CLAUDE.md import is ever an ancestor of a leased worktree. Callers only
+# compute the path; `treehouse get` creates it.
 fm_treehouse_pool_root() {  # <project-dir>
-  local project=$1 real hash base
+  local project=$1 real hash base pool_root probe tail leaf resolved part active_home root_home
   real=$(CDPATH='' cd -- "$project" 2>/dev/null && pwd -P) || return 1
   hash=$(printf '%s' "$real" | git hash-object --stdin 2>/dev/null) || return 1
-  base=${XDG_STATE_HOME:-$HOME/.local/state}
-  printf '%s/firstmate/treehouse-pools/%s\n' "$base" "$hash"
+  case ${XDG_STATE_HOME:-} in
+    /*) base=$XDG_STATE_HOME ;;
+    *)
+      base=${HOME:-}
+      if [ -n "$base" ]; then
+        base="$base/.local/state"
+      else
+        base=.local/state
+      fi
+      ;;
+  esac
+  pool_root="${base%/}/firstmate/treehouse-pools/$hash"
+  case "$pool_root" in
+    /*) ;;
+    *)
+      echo "fm-wake-lib: isolated Treehouse pool root '$pool_root' is not absolute; refusing to use it" >&2
+      return 1
+      ;;
+  esac
+
+  probe=$pool_root
+  tail=
+  while [ ! -e "$probe" ] && [ ! -L "$probe" ]; do
+    [ "$probe" != / ] || break
+    leaf=$(basename -- "$probe") || return 1
+    tail="$leaf${tail:+/$tail}"
+    probe=$(dirname -- "$probe") || return 1
+  done
+  if [ ! -d "$probe" ]; then
+    echo "fm-wake-lib: isolated Treehouse pool root '$pool_root' cannot be resolved through directory '$probe'; refusing to use it" >&2
+    return 1
+  fi
+  resolved=$(CDPATH='' cd -- "$probe" 2>/dev/null && pwd -P) || {
+    echo "fm-wake-lib: isolated Treehouse pool root '$pool_root' cannot be resolved; refusing to use it" >&2
+    return 1
+  }
+  while [ -n "$tail" ]; do
+    case "$tail" in
+      */*) part=${tail%%/*}; tail=${tail#*/} ;;
+      *) part=$tail; tail= ;;
+    esac
+    case "$part" in
+      ''|.) ;;
+      ..)
+        if [ "$resolved" != / ]; then
+          resolved=${resolved%/*}
+          [ -n "$resolved" ] || resolved=/
+        fi
+        ;;
+      *)
+        if [ "$resolved" = / ]; then
+          resolved="/$part"
+        else
+          resolved="$resolved/$part"
+        fi
+        ;;
+    esac
+  done
+  pool_root=$resolved
+  case "$pool_root" in
+    /*) ;;
+    *)
+      echo "fm-wake-lib: isolated Treehouse pool root '$pool_root' is not absolute after resolution; refusing to use it" >&2
+      return 1
+      ;;
+  esac
+
+  active_home=$(CDPATH='' cd -- "$FM_HOME" 2>/dev/null && pwd -P) || {
+    echo "fm-wake-lib: cannot resolve the active Firstmate home '$FM_HOME' while checking isolated Treehouse pool root '$pool_root'" >&2
+    return 1
+  }
+  root_home=$(fm_firstmate_root_home "$active_home") || {
+    echo "fm-wake-lib: cannot resolve the root Firstmate home from '$active_home' while checking isolated Treehouse pool root '$pool_root'" >&2
+    return 1
+  }
+  case "$pool_root" in
+    "$active_home"|"$active_home"/*)
+      echo "fm-wake-lib: isolated Treehouse pool root '$pool_root' resolves inside active Firstmate home '$active_home'; refusing to use it" >&2
+      return 1
+      ;;
+  esac
+  [ "$active_home" != / ] || {
+    echo "fm-wake-lib: isolated Treehouse pool root '$pool_root' resolves inside active Firstmate home '$active_home'; refusing to use it" >&2
+    return 1
+  }
+  case "$pool_root" in
+    "$root_home"|"$root_home"/*)
+      echo "fm-wake-lib: isolated Treehouse pool root '$pool_root' resolves inside root Firstmate home '$root_home'; refusing to use it" >&2
+      return 1
+      ;;
+  esac
+  [ "$root_home" != / ] || {
+    echo "fm-wake-lib: isolated Treehouse pool root '$pool_root' resolves inside root Firstmate home '$root_home'; refusing to use it" >&2
+    return 1
+  }
+  printf '%s\n' "$pool_root"
 }
 
 # Treehouse v2.3.0 names a shared-root pool from the repository basename and
@@ -1264,8 +1358,8 @@ fm_treehouse_pool_root() {  # <project-dir>
 # on Claude Code 2.1.282, actually answers with an explicit decline that then
 # wedges every later launch for that project from that home. Routing through
 # fm_treehouse_pool_root's absolute, machine-global location instead keeps the
-# pool outside every home's tree, so no home's CLAUDE.md is ever an ancestor
-# of a leased worktree and the prompt never renders.
+# pool outside the active and root homes' trees, so neither home's CLAUDE.md is
+# ever an ancestor of a leased worktree and the prompt never renders.
 #
 # Only a home that is NOT the local root ever gets this. The root/primary
 # home's project clones keep Treehouse's ordinary default root untouched:

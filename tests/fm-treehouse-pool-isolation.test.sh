@@ -3,8 +3,8 @@
 # the cross-clone pool collision described by
 # fm_treehouse_ensure_isolated_pool in bin/fm-wake-lib.sh, and for the
 # CLAUDE.md-ancestor regression an earlier in-project fix (root = ".") caused:
-# a non-root home's isolated pool must sit outside every Firstmate home's own
-# directory tree, not just outside other clones.
+# a non-root home's isolated pool must sit outside the active Firstmate home
+# and its root home's directory tree, not just outside other clones.
 # It proves the collision, root-home no-op, out-of-home-tree isolation, config
 # refusal, legacy in-project migration, project-less aliasing avoidance, clean
 # Git porcelain, and acquire-to-return lifecycle under a competing
@@ -103,13 +103,12 @@ prime_shared_pool() {
 # run_ensure <project> <home>: fm_treehouse_ensure_isolated_pool in a subshell
 # with its own scratch FM_HOME and HOME, so sourcing bin/fm-wake-lib.sh never
 # touches this real worktree's own state/ directory (it mkdir -p's
-# $FM_HOME/state at source time), and fm_treehouse_pool_root's
-# ${XDG_STATE_HOME:-$HOME/.local/state} fallback never touches the operator's
-# real machine state either.
+# $FM_HOME/state at source time), and fm_treehouse_pool_root's HOME-based
+# fallback never touches the operator's real machine state either.
 run_ensure() {
-  local project=$1 home=$2
+  local project=$1 home=$2 xdg_state_home=${3-}
   FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" HOME="$SCRATCH_HOME" \
-    XDG_STATE_HOME='' bash -c '
+    XDG_STATE_HOME="$xdg_state_home" bash -c '
     set -u
     # shellcheck source=bin/fm-wake-lib.sh
     . "$1"
@@ -117,12 +116,13 @@ run_ensure() {
   ' _ "$ROOT/bin/fm-wake-lib.sh" "$project" "$home"
 }
 
-# pool_root_for <project>: the same absolute pool root fm_treehouse_ensure_isolated_pool
+# pool_root_for <project> <home>: the same absolute pool root fm_treehouse_ensure_isolated_pool
 # writes for <project>, computed directly so tests can pass it to `treehouse`
 # explicitly - exactly how fm-spawn.sh's own --root flag is built.
 pool_root_for() {
-  local project=$1
-  HOME="$SCRATCH_HOME" XDG_STATE_HOME='' bash -c '
+  local project=$1 home=$2
+  FM_HOME="$home" FM_STATE_OVERRIDE="$SCRATCH_HOME/helper-state" \
+    HOME="$SCRATCH_HOME" XDG_STATE_HOME='' bash -c '
     set -u
     # shellcheck source=bin/fm-wake-lib.sh
     . "$1"
@@ -162,6 +162,30 @@ test_ensure_isolated_pool_is_noop_for_root_home() {
   pass "fm_treehouse_ensure_isolated_pool is a no-op for the root home's own clone"
 }
 
+test_pool_root_falls_back_from_relative_xdg_state_home() {
+  local rec out status hash pool_root slot
+  rec=$(make_case relative-xdg)
+  read_case "$rec"
+
+  out=$(run_ensure "$SECOND_CLONE" "$SECOND_HOME" relative-state 2>&1)
+  status=$?
+  expect_code 0 "$status" "a relative XDG_STATE_HOME should fall back to HOME/.local/state"$'\n'"$out"
+  hash=$(printf '%s' "$SECOND_CLONE" | git hash-object --stdin)
+  pool_root="$SCRATCH_HOME/.local/state/firstmate/treehouse-pools/$hash"
+  slot=$(
+    cd "$SECOND_CLONE" || exit 1
+    unset TREEHOUSE_ROOT
+    HOME="$SCRATCH_HOME" XDG_STATE_HOME=relative-state \
+      treehouse get --lease --lease-holder relative-xdg-task 2>/dev/null
+  )
+  [ -n "$slot" ] && [ -d "$slot" ] || fail "relative XDG_STATE_HOME fallback could not acquire a Treehouse slot"
+  under_tree "$slot" "$pool_root" \
+    || fail "relative XDG_STATE_HOME did not fall back to the absolute HOME-based pool: $slot"
+  treehouse_pool "$SECOND_CLONE" return --force "$slot" >/dev/null 2>&1 \
+    || fail "relative-XDG fallback slot could not be returned"
+  pass "fm_treehouse_pool_root ignores a relative XDG_STATE_HOME"
+}
+
 test_ensure_isolated_pool_fixes_secondmate_collision() {
   local rec out status pool_root slot root_status isolated_status
   rec=$(make_case fix-collision)
@@ -171,7 +195,7 @@ test_ensure_isolated_pool_fixes_secondmate_collision() {
   out=$(run_ensure "$SECOND_CLONE" "$SECOND_HOME" 2>&1)
   status=$?
   expect_code 0 "$status" "fm_treehouse_ensure_isolated_pool should isolate the secondmate's clone"$'\n'"$out"
-  pool_root=$(pool_root_for "$SECOND_CLONE")
+  pool_root=$(pool_root_for "$SECOND_CLONE" "$SECOND_HOME")
   [ -n "$pool_root" ] || fail "could not compute the secondmate clone's isolated pool root"
 
   slot=$(treehouse_pool "$SECOND_CLONE" get --root "$pool_root" --lease --lease-holder second-task 2>/dev/null)
@@ -231,7 +255,7 @@ test_ensure_isolated_pool_keeps_project_clean_after_get() {
   out=$(run_ensure "$SECOND_CLONE" "$SECOND_HOME" 2>&1)
   status=$?
   expect_code 0 "$status" "isolation call should succeed"$'\n'"$out"
-  pool_root=$(pool_root_for "$SECOND_CLONE")
+  pool_root=$(pool_root_for "$SECOND_CLONE" "$SECOND_HOME")
   slot=$(treehouse_pool "$SECOND_CLONE" get --root "$pool_root" --lease --lease-holder clean-project-task 2>/dev/null)
   [ -n "$slot" ] && [ -d "$slot" ] || fail "isolated secondmate clone could not draw a Treehouse slot"
   porcelain=$(git -C "$SECOND_CLONE" status --porcelain)
@@ -258,7 +282,7 @@ test_ensure_isolated_pool_keeps_pool_outside_home_tree() {
   out=$(run_ensure "$SECOND_CLONE" "$SECOND_HOME" 2>&1)
   status=$?
   expect_code 0 "$status" "isolation call should succeed"$'\n'"$out"
-  pool_root=$(pool_root_for "$SECOND_CLONE")
+  pool_root=$(pool_root_for "$SECOND_CLONE" "$SECOND_HOME")
   [ -n "$pool_root" ] || fail "could not compute the secondmate clone's isolated pool root"
   ! under_tree "$pool_root" "$SECOND_HOME" \
     || fail "isolated pool root sits inside the secondmate home's own directory tree: $pool_root"
@@ -273,7 +297,7 @@ test_ensure_isolated_pool_keeps_pool_outside_home_tree() {
     || fail "leased worktree sits inside the root home's own directory tree, inheriting its CLAUDE.md: $slot"
   treehouse_pool "$SECOND_CLONE" return --force "$slot" >/dev/null 2>&1 \
     || fail "isolated slot could not be returned after the outside-home-tree check"
-  pass "fm_treehouse_ensure_isolated_pool's pool root and leased worktrees stay outside every home's directory tree"
+  pass "fm_treehouse_ensure_isolated_pool's pool root and leased worktrees stay outside the active and root homes"
 }
 
 # A clone already carrying PR #7's legacy `root = "."` (with a live slot
@@ -297,7 +321,7 @@ test_ensure_isolated_pool_migrates_legacy_in_project_config() {
   out=$(run_ensure "$SECOND_CLONE" "$SECOND_HOME" 2>&1)
   status=$?
   expect_code 0 "$status" "migrating a legacy in-project config should succeed"$'\n'"$out"
-  pool_root=$(pool_root_for "$SECOND_CLONE")
+  pool_root=$(pool_root_for "$SECOND_CLONE" "$SECOND_HOME")
   migrated_slot=$(
     cd "$SECOND_CLONE" || exit 1
     unset TREEHOUSE_ROOT
@@ -342,8 +366,8 @@ test_ensure_isolated_pool_avoids_projectless_home_aliasing() {
   fm_git_worktree "$seed" "$home_a" home-a-branch
   git -C "$seed" worktree add --quiet -b home-b-branch "$home_b"
 
-  root_a=$(pool_root_for "$home_a")
-  root_b=$(pool_root_for "$home_b")
+  root_a=$(pool_root_for "$home_a" "$home_a")
+  root_b=$(pool_root_for "$home_b" "$home_b")
   [ -n "$root_a" ] && [ -n "$root_b" ] || fail "could not compute pool roots for the project-less homes"
   [ "$root_a" != "$root_b" ] \
     || fail "two different project-less homes computed the same isolated pool root: $root_a"
@@ -380,6 +404,7 @@ test_ensure_isolated_pool_avoids_projectless_home_aliasing() {
 
 test_reproduces_cross_home_pool_collision
 test_ensure_isolated_pool_is_noop_for_root_home
+test_pool_root_falls_back_from_relative_xdg_state_home
 test_ensure_isolated_pool_fixes_secondmate_collision
 test_ensure_isolated_pool_is_idempotent
 test_ensure_isolated_pool_refuses_incompatible_existing_config
