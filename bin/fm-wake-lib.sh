@@ -1232,25 +1232,13 @@ fm_treehouse_project_lock_path() {  # <project-dir>
   printf '%s/.treehouse-project-%s.lock\n' "$root/state" "$hash"
 }
 
-# A secondmate's own standalone clone of a project can share Treehouse's pool
-# identity with the primary checkout's clone of the very same project.
-# Verified live (Treehouse v2.3.0, 2026-09-24, disposable sandbox): Treehouse
-# names a pool "<repo-basename>-<sha256(origin-url)[:6]>" under one shared
-# root, never by which clone asked, so two independent clones with the same
-# directory name and origin resolve to the identical pool. A pool that
-# already has slots linked from the OTHER clone can then hand one of those
-# out to a `treehouse get` run from this clone; bin/fm-claude-trust.sh
-# correctly refuses that slot (it is not a worktree of the project this spawn
-# was given), so the secondmate could never dispatch a worker for that
-# project at all - see data/fm-pool-fix/dispatch-blocker.md for the field
-# report this fixes.
+# Treehouse v2.3.0 names a shared-root pool from the repository basename and
+# origin rather than the clone that asks. Independent clones can therefore
+# receive slots linked to each other, which bin/fm-claude-trust.sh must refuse.
 #
-# The fix leans on Treehouse's own supported per-project config instead of
-# working around it: `treehouse init`'s generated treehouse.toml documents
-# `root = "."` as keeping the pool in-project, at <repo>/.treehouse/, "next to
-# the code and removed with the project" - genuinely scoped to that one
-# clone's own directory tree, which cannot alias another clone's pool no
-# matter what origin they share.
+# Treehouse's supported `root = "."` project config keeps the pool at
+# <repo>/.treehouse/, where another clone cannot alias it. The spawn caller
+# also passes `--root .` because TREEHOUSE_ROOT has higher precedence.
 #
 # Only a home that is NOT the local root ever gets this. The root/primary
 # home's project clones keep Treehouse's ordinary default root untouched:

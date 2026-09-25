@@ -1,26 +1,10 @@
 #!/usr/bin/env bash
-# tests/fm-treehouse-pool-isolation.test.sh - regression test for the
-# cross-home Treehouse pool collision fixed by bin/fm-wake-lib.sh's
-# fm_treehouse_ensure_isolated_pool (called from bin/fm-spawn.sh before every
-# `treehouse get`).
-#
-# Root cause (verified live against the installed treehouse v2.3.0 in a
-# disposable sandbox, 2026-09-24): Treehouse keys a pool by
-# "<repo-basename>-<sha256(origin-url)[:6]>" under one shared root, never by
-# which local clone asked. Two independent clones of the same project - the
-# root firstmate home's own clone and a secondmate home's standalone clone,
-# both named the same and sharing an origin - therefore resolve to the
-# identical pool, and a `treehouse get` from either clone can be handed a
-# pre-existing slot that is a linked worktree of the OTHER clone.
-# bin/fm-claude-trust.sh correctly refuses that slot (it is not a worktree of
-# the project the spawn was given), so the secondmate could never dispatch a
-# worker for that project at all. See data/fm-pool-fix/dispatch-blocker.md
-# for the field report this fixes.
-#
-# These tests exercise the REAL treehouse binary end to end (not the fake
-# spawn-harness stub other fm-spawn tests use, which stubs treehouse as a
-# no-op), because the bug lives entirely inside Treehouse's own pool-naming
-# behavior and the fix leans on Treehouse's own supported per-project config.
+# tests/fm-treehouse-pool-isolation.test.sh - real-Treehouse regression for
+# the cross-clone pool collision described by
+# fm_treehouse_ensure_isolated_pool in bin/fm-wake-lib.sh.
+# It proves the collision, root-home no-op, non-root isolation, config refusal,
+# clean Git porcelain, and acquire-to-return lifecycle under a competing
+# TREEHOUSE_ROOT; fake spawn-harness Treehouse stubs cannot cover those facts.
 set -u
 
 # shellcheck source=tests/fixtures.sh
@@ -86,9 +70,8 @@ treehouse_pool() {
   ( cd "$clone" && HOME="$SCRATCH_HOME" TREEHOUSE_ROOT="$CASE_DIR/shared-treehouse" treehouse "$@" )
 }
 
-# prime_shared_pool: acquire and return one slot from the root clone, exactly
-# like an earlier root-home spawn that finished and went back to the pool -
-# the state every collision starts from in the field report.
+# prime_shared_pool: acquire and return one slot from the root clone so the
+# shared pool can hand that clone's available worktree to another clone.
 prime_shared_pool() {
   local slot
   slot=$(treehouse_pool "$ROOT_CLONE" get --lease --lease-holder root-task 2>/dev/null)
@@ -117,9 +100,8 @@ test_reproduces_cross_home_pool_collision() {
   read_case "$rec"
   prime_shared_pool
 
-  # Without any isolation, the secondmate's own clone reuses that same
-  # available slot - a linked worktree of the ROOT's clone, not its own -
-  # exactly the refusal bin/fm-claude-trust.sh reported in the field.
+  # Without isolation, the secondmate's clone reuses the root clone's available
+  # slot, which is not a linked worktree of the project the spawn was given.
   slot=$(treehouse_pool "$SECOND_CLONE" get --lease --lease-holder second-task 2>/dev/null)
   [ -n "$slot" ] && [ -d "$slot" ] || fail "fixture could not draw a slot from the shared pool via the secondmate clone"
   [ "$(slot_common_dir "$slot")" = "$(slot_common_dir "$ROOT_CLONE")" ] \

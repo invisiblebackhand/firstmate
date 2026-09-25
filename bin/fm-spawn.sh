@@ -3840,13 +3840,10 @@ if [ "$RELAUNCH" -eq 1 ]; then
   fi
   [ "$KIND" = secondmate ] || validate_spawn_worktree "relaunch" "$T"
 elif [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
-  # A non-root home's own clone of this project can otherwise share Treehouse's
-  # pool identity with the primary checkout's clone (same name, same origin),
-  # so a slot handed back here could be a worktree of a DIFFERENT home's clone
-  # - which bin/fm-claude-trust.sh correctly refuses. Isolate this home's pool
-  # before ever asking Treehouse for a slot; see fm_treehouse_ensure_isolated_pool
-  # in bin/fm-wake-lib.sh for the verified cause and the fix. A no-op for the
-  # root home, whose existing pool location is never touched.
+  # Isolate a non-root home's project pool before acquisition; the helper owns
+  # the cross-clone collision rationale and the root-home/config safety bounds.
+  # The explicit root below is also required because TREEHOUSE_ROOT outranks
+  # project config.
   SPAWN_TREEHOUSE_GET_LINE='treehouse get'
   if command -v treehouse >/dev/null 2>&1; then
     if ! fm_treehouse_ensure_isolated_pool "$PROJ_ABS" "$FM_HOME"; then
