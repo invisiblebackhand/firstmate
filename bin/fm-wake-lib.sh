@@ -1245,7 +1245,7 @@ fm_treehouse_project_lock_path() {  # <project-dir>
 fm_treehouse_pool_root() {  # <project-dir>
   local project=$1 real hash base pool_root probe tail leaf resolved part active_home root_home
   real=$(CDPATH='' cd -- "$project" 2>/dev/null && pwd -P) || return 1
-  hash=$(printf '%s' "$real" | git hash-object --stdin 2>/dev/null) || return 1
+  hash=$(printf '%s' "$real" | git -C "$real" hash-object --stdin 2>/dev/null) || return 1
   case ${XDG_STATE_HOME:-} in
     /*) base=$XDG_STATE_HOME ;;
     *)

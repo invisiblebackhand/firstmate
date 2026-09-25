@@ -299,7 +299,7 @@ EOF
   status=$?
   expect_code 0 "$status" "spawn from a non-root home should succeed with a competing TREEHOUSE_ROOT"
   assert_contains "$out" "spawned rec-pool-hh8" "non-root recording spawn did not report success"
-  pool_hash=$(printf '%s' "$proj" | git hash-object --stdin)
+  pool_hash=$(printf '%s' "$proj" | git -C "$proj" hash-object --stdin)
   pool_root="$TMP_ROOT/spawn-rec-xdg-state/firstmate/treehouse-pools/$pool_hash"
   assert_grep "send-keys -t @spawnwid treehouse get --root '$pool_root' Enter" "$rec" \
     "non-root spawn did not force its absolute isolated Treehouse pool"

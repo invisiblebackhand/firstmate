@@ -99,17 +99,20 @@ prime_shared_pool() {
     || fail "fixture could not return the priming slot to the pool"
 }
 
-# pool_root_for <project> <home> [xdg-state-home]: compute the same absolute
-# pool root fm-spawn.sh passes directly to `treehouse get --root`.
+# pool_root_for <project> <home> [xdg-state-home] [launcher-dir]: compute the
+# same absolute pool root fm-spawn.sh passes directly to `treehouse get --root`.
 pool_root_for() {
-  local project=$1 home=$2 xdg_state_home=${3-}
-  FM_HOME="$home" FM_STATE_OVERRIDE="$SCRATCH_HOME/helper-state" \
-    HOME="$SCRATCH_HOME" XDG_STATE_HOME="$xdg_state_home" bash -c '
-    set -u
-    # shellcheck source=bin/fm-wake-lib.sh
-    . "$1"
-    fm_treehouse_pool_root "$2"
-  ' _ "$ROOT/bin/fm-wake-lib.sh" "$project"
+  local project=$1 home=$2 xdg_state_home=${3-} launcher=${4-$PWD}
+  (
+    cd "$launcher" || exit 1
+    FM_HOME="$home" FM_STATE_OVERRIDE="$SCRATCH_HOME/helper-state" \
+      HOME="$SCRATCH_HOME" XDG_STATE_HOME="$xdg_state_home" bash -c '
+      set -u
+      # shellcheck source=bin/fm-wake-lib.sh
+      . "$1"
+      fm_treehouse_pool_root "$2"
+    ' _ "$ROOT/bin/fm-wake-lib.sh" "$project"
+  )
 }
 
 test_reproduces_cross_home_pool_collision() {
@@ -136,7 +139,7 @@ test_pool_root_falls_back_from_relative_xdg_state_home() {
   rec=$(make_case relative-xdg)
   read_case "$rec"
 
-  hash=$(printf '%s' "$SECOND_CLONE" | git hash-object --stdin)
+  hash=$(printf '%s' "$SECOND_CLONE" | git -C "$SECOND_CLONE" hash-object --stdin)
   pool_root="$SCRATCH_HOME/.local/state/firstmate/treehouse-pools/$hash"
   [ "$(pool_root_for "$SECOND_CLONE" "$SECOND_HOME" relative-state)" = "$pool_root" ] \
     || fail "relative XDG_STATE_HOME did not fall back to the absolute HOME-based pool"
@@ -147,6 +150,39 @@ test_pool_root_falls_back_from_relative_xdg_state_home() {
   treehouse_pool "$SECOND_CLONE" return --force "$slot" >/dev/null 2>&1 \
     || fail "relative-XDG fallback slot could not be returned"
   pass "fm_treehouse_pool_root ignores a relative XDG_STATE_HOME"
+}
+
+test_pool_root_key_is_independent_of_launcher_object_format() {
+  local rec sha1_launcher sha256_launcher sha256_project sha1_expected sha256_expected root
+  rec=$(make_case object-format)
+  read_case "$rec"
+  sha1_launcher="$CASE_DIR/launcher-sha1"
+  sha256_launcher="$CASE_DIR/launcher-sha256"
+  sha256_project="$CASE_DIR/project-sha256"
+  git init -q --object-format=sha1 "$sha1_launcher"
+  git init -q --object-format=sha256 "$sha256_launcher"
+  git init -q --object-format=sha256 "$sha256_project"
+
+  [ "$(git -C "$sha1_launcher" rev-parse --show-object-format)" = sha1 ] \
+    || fail "launcher fixture did not use SHA-1"
+  [ "$(git -C "$sha256_launcher" rev-parse --show-object-format)" = sha256 ] \
+    || fail "launcher fixture did not use SHA-256"
+  sha1_expected="$SCRATCH_HOME/.local/state/firstmate/treehouse-pools/$(printf '%s' "$SECOND_CLONE" | git -C "$SECOND_CLONE" hash-object --stdin)"
+  sha256_expected="$SCRATCH_HOME/.local/state/firstmate/treehouse-pools/$(printf '%s' "$sha256_project" | git -C "$sha256_project" hash-object --stdin)"
+
+  for root in \
+    "$(pool_root_for "$SECOND_CLONE" "$SECOND_HOME" '' "$sha1_launcher")" \
+    "$(pool_root_for "$SECOND_CLONE" "$SECOND_HOME" '' "$sha256_launcher")"; do
+    [ "$root" = "$sha1_expected" ] \
+      || fail "SHA-1 project pool key changed with the launcher repository format: $root"
+  done
+  for root in \
+    "$(pool_root_for "$sha256_project" "$SECOND_HOME" '' "$sha1_launcher")" \
+    "$(pool_root_for "$sha256_project" "$SECOND_HOME" '' "$sha256_launcher")"; do
+    [ "$root" = "$sha256_expected" ] \
+      || fail "SHA-256 project pool key changed with the launcher repository format: $root"
+  done
+  pass "fm_treehouse_pool_root keys each project independently of the launcher repository format"
 }
 
 test_explicit_isolated_pool_fixes_secondmate_collision() {
@@ -346,6 +382,7 @@ test_pool_root_avoids_projectless_home_aliasing() {
 
 test_reproduces_cross_home_pool_collision
 test_pool_root_falls_back_from_relative_xdg_state_home
+test_pool_root_key_is_independent_of_launcher_object_format
 test_explicit_isolated_pool_fixes_secondmate_collision
 test_explicit_root_overrides_project_config_without_mutating_it
 test_explicit_isolated_pool_keeps_project_clean_after_get
