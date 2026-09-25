@@ -126,7 +126,8 @@ test_reproduces_cross_home_pool_collision() {
     || fail "fixture did not reproduce the collision: the slot did not come from the root clone"
   [ "$(slot_common_dir "$slot")" != "$(slot_common_dir "$SECOND_CLONE")" ] \
     || fail "fixture did not reproduce the collision: the slot unexpectedly already matched the secondmate clone"
-  treehouse_pool "$SECOND_CLONE" return --force "$slot" >/dev/null 2>&1 || true
+  treehouse_pool "$SECOND_CLONE" return --force "$slot" >/dev/null 2>&1 \
+    || fail "fixture could not return the collided slot to the shared pool"
   pass "reproduced: an unmodified Treehouse pool hands a secondmate clone a slot linked to the root's own clone"
 }
 
@@ -144,7 +145,7 @@ test_ensure_isolated_pool_is_noop_for_root_home() {
 }
 
 test_ensure_isolated_pool_fixes_secondmate_collision() {
-  local rec out status slot root_status
+  local rec out status slot root_status isolated_status
   rec=$(make_case fix-collision)
   read_case "$rec"
   prime_shared_pool
@@ -165,7 +166,11 @@ test_ensure_isolated_pool_fixes_secondmate_collision() {
   root_status=$(treehouse_pool "$ROOT_CLONE" status --json 2>/dev/null)
   assert_contains "$root_status" '"status":"available"' \
     "fixing the secondmate's pool disturbed the root home's own pool"
-  treehouse_pool "$SECOND_CLONE" return --force "$slot" >/dev/null 2>&1 || true
+  treehouse_pool "$SECOND_CLONE" return --force "$slot" >/dev/null 2>&1 \
+    || fail "isolated slot return followed the competing TREEHOUSE_ROOT instead of the slot's owning pool"
+  isolated_status=$(treehouse_pool "$SECOND_CLONE" status --root . --json 2>/dev/null)
+  assert_contains "$isolated_status" '"status":"available"' \
+    "returned isolated slot did not become available in its in-project pool"
   pass "fm_treehouse_ensure_isolated_pool gives the secondmate clone its own in-project pool without touching the root's"
 }
 
@@ -218,7 +223,8 @@ test_ensure_isolated_pool_keeps_project_clean_after_get() {
   esac
   porcelain=$(git -C "$SECOND_CLONE" status --porcelain)
   [ -z "$porcelain" ] || fail "Treehouse isolation artifacts dirty the secondmate clone: $porcelain"
-  treehouse_pool "$SECOND_CLONE" return --force "$slot" >/dev/null 2>&1 || true
+  treehouse_pool "$SECOND_CLONE" return --force "$slot" >/dev/null 2>&1 \
+    || fail "isolated slot could not be returned after the clean-project check"
   pass "Treehouse isolation config and pool state leave the secondmate clone clean"
 }
 
