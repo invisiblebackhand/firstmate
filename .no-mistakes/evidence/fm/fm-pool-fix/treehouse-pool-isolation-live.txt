@@ -1,0 +1,35 @@
+SCENARIO_SETUP=two independent clones share basename quant-skills and origin /private/var/folders/09/h22pv0f11k542y2wg2hw3dzh0000gn/T/fm-poolfix-live.bwma9m/origin.git
+🌳 Worktree returned to pool.
+COLLISION_REPRODUCED=unisolated secondmate acquisition returned root-clone worktree
+COLLISION_SLOT_COMMON_DIR=/private/var/folders/09/h22pv0f11k542y2wg2hw3dzh0000gn/T/fm-poolfix-live.bwma9m/root-home/projects/quant-skills/.git
+🌳 Worktree returned to pool.
+HERDR_LAB=fm-lab-poolfix-4816-7438 (provisioned with competing TREEHOUSE_ROOT=/private/var/folders/09/h22pv0f11k542y2wg2hw3dzh0000gn/T/fm-poolfix-live.bwma9m/shared-treehouse)
+--- fm-spawn stdout ---
+spawned poolfix-live harness=sh kind=ship mode=no-mistakes yolo=off window=fm-lab-poolfix-4816-7438:w1:p2 worktree=/private/var/folders/09/h22pv0f11k542y2wg2hw3dzh0000gn/T/fm-poolfix-live.bwma9m/secondmate-home/projects/quant-skills/.treehouse/quant-skills-9cbc19/1/quant-skills
+--- fm-spawn stderr ---
+SPAWN_WORKTREE=/private/var/folders/09/h22pv0f11k542y2wg2hw3dzh0000gn/T/fm-poolfix-live.bwma9m/secondmate-home/projects/quant-skills/.treehouse/quant-skills-9cbc19/1/quant-skills
+SPAWN_COMMON_DIR=/private/var/folders/09/h22pv0f11k542y2wg2hw3dzh0000gn/T/fm-poolfix-live.bwma9m/secondmate-home/projects/quant-skills/.git (matches secondmate clone)
+SPAWN_META_BACKEND=herdr
+HERDR_PANE_OUTPUT=poolfix-worker-ready
+SECOND_CLONE_GIT_STATUS=<clean>
+SHARED_POOL_BEFORE_TEARDOWN=[{"path":"/private/var/folders/09/h22pv0f11k542y2wg2hw3dzh0000gn/T/fm-poolfix-live.bwma9m/shared-treehouse/.treehouse/quant-skills-9cbc19/1/quant-skills","status":"available"}]
+--- fm-teardown output ---
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision according to the session-start block for this harness; do not use shell &.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+teardown: reaping leaked worktree process(es) for poolfix-live: 6225 7324 8863
+teardown: force-killing leaked worktree process(es) for poolfix-live: 6225
+🌳 Worktree returned to pool.
+quant-skills: already current
+teardown poolfix-live complete (window fm-lab-poolfix-4816-7438:w1:p2, worktree /private/var/folders/09/h22pv0f11k542y2wg2hw3dzh0000gn/T/fm-poolfix-live.bwma9m/secondmate-home/projects/quant-skills/.treehouse/quant-skills-9cbc19/1/quant-skills)
+Backlog: poolfix-live just finished (this home keeps no markdown backlog at /private/var/folders/09/h22pv0f11k542y2wg2hw3dzh0000gn/T/fm-poolfix-live.bwma9m/secondmate-home/data/backlog.md). Update /private/var/folders/09/h22pv0f11k542y2wg2hw3dzh0000gn/T/fm-poolfix-live.bwma9m/secondmate-home/data/backlog.md - move poolfix-live to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+ISOLATED_POOL_AFTER_TEARDOWN=[{"path":"/private/var/folders/09/h22pv0f11k542y2wg2hw3dzh0000gn/T/fm-poolfix-live.bwma9m/secondmate-home/projects/quant-skills/.treehouse/quant-skills-9cbc19/1/quant-skills","status":"available"}]
+SHARED_POOL_AFTER_TEARDOWN=[{"path":"/private/var/folders/09/h22pv0f11k542y2wg2hw3dzh0000gn/T/fm-poolfix-live.bwma9m/shared-treehouse/.treehouse/quant-skills-9cbc19/1/quant-skills","status":"available"}]
+TEARDOWN_META=removed
+TEARDOWN_PANE=removed
+LIVE_PRODUCT_RESULT=passed
+LAB_TEARDOWN=passed (named session removed; default-session tripwire unchanged)
