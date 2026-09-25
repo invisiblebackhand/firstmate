@@ -3841,9 +3841,13 @@ if [ "$RELAUNCH" -eq 1 ]; then
   [ "$KIND" = secondmate ] || validate_spawn_worktree "relaunch" "$T"
 elif [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
   # Isolate a non-root home's project pool before acquisition; the helper owns
-  # the cross-clone collision rationale and the root-home/config safety bounds.
-  # The explicit root below is also required because TREEHOUSE_ROOT outranks
-  # project config.
+  # the cross-clone collision rationale, the out-of-home-tree pool location,
+  # and the root-home/config safety bounds. The explicit --root below is also
+  # required because TREEHOUSE_ROOT outranks project config, and it must be
+  # the same absolute path the helper just wrote, not a relative "." - a
+  # relative root resolves from Treehouse's own git-discovered repo top level,
+  # not this pane's cwd, which is exactly what let two linked worktrees of one
+  # project-less home's own repo alias a single pool before.
   SPAWN_TREEHOUSE_GET_LINE='treehouse get'
   if command -v treehouse >/dev/null 2>&1; then
     if ! fm_treehouse_ensure_isolated_pool "$PROJ_ABS" "$FM_HOME"; then
@@ -3859,7 +3863,11 @@ elif [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
       exit 1
     }
     if [ "$SPAWN_TREEHOUSE_HOME" != "$SPAWN_TREEHOUSE_ROOT_HOME" ]; then
-      SPAWN_TREEHOUSE_GET_LINE='treehouse get --root .'
+      SPAWN_TREEHOUSE_POOL_ROOT=$(fm_treehouse_pool_root "$PROJ_ABS") || {
+        echo "error: could not resolve this home's isolated Treehouse pool location for project '$PROJ_ABS'" >&2
+        exit 1
+      }
+      SPAWN_TREEHOUSE_GET_LINE="treehouse get --root $(shell_quote "$SPAWN_TREEHOUSE_POOL_ROOT")"
     fi
   fi
   spawn_send_text_line "$WT_TARGET" "$SPAWN_TREEHOUSE_GET_LINE"

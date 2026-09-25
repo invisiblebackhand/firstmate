@@ -463,6 +463,33 @@ That warning rendered in the same shape as the trust dialog, with the selection 
 That gate is not a production blocker, because a normal environment has already accepted it and the treatment arm above ran against the real config and saw neither dialog.
 This change does not address that warning and does not claim to.
 
+### 2026-09-25 external-imports dialog: Escape answers it, does not merely dismiss it
+
+Verified 2026-09-25 on Claude Code 2.1.282, from a live non-root secondmate home spawn (`data/queue-release-2026-09-25.md` in that home) whose worker's leased worktree had come to sit inside the home's own directory tree under PR #7's original in-project `root = "."` isolation, so the home's own `CLAUDE.md` (`@AGENTS.md`) was an ancestor of the worker's cwd.
+
+```
+Allow external CLAUDE.md file imports?
+This project's CLAUDE.md imports files outside the current working directory. ...
+External imports:
+  <home>/AGENTS.md
+❯ No, disable external imports
+  Yes, allow external imports
+Enter to confirm · Esc to cancel
+```
+
+`fm-control.sh <id> interrupt` delivered a single Escape, per the harness-adapters Claude reference's then-current claim that Escape "dismisses whichever of the two is on screen without answering it".
+`${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json` afterward, `jq` over `.projects` (flags only):
+
+```
+<worktree entry>                    trust=true extApproved=false extShown=true
+<project entry>                     trust=true extApproved=false extShown=true
+```
+
+`false` plus `shown=true` is exactly the pair `bin/fm-claude-trust.sh` documents as an explicit human "No, disable" (see "Claude workspace trust" above), so Escape saved a real decline rather than merely closing the dialog.
+`bin/fm-claude-trust.sh` then correctly refused to overwrite that decline on every later launch for that project from that home, matching its documented consent-gating contract - the dialog itself was the bug (see fm_treehouse_ensure_isolated_pool in `bin/fm-wake-lib.sh`), not the trust script's refusal.
+The harness-adapters Claude reference was corrected the same day to state this instead of the earlier "dismisses without answering" claim; that earlier claim is what this entry supersedes, and any future doubt about Escape's effect on either Claude dialog should be settled the same way - a live pane, its rendered text, and the resulting `.claude.json` flags - rather than assumed.
+No automated guard pins this: it is an interactive-dialog observation of the kind `firstmate-coding-guidelines`' harness-dependent-checks section calls out as unavoidably manual, so a version bump should re-verify it live rather than trust this entry indefinitely.
+
 ### Secondmate homes
 
 Verified 2026-09-11 on Claude Code 2.1.269.
