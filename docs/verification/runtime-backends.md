@@ -478,17 +478,45 @@ Enter to confirm · Esc to cancel
 ```
 
 `fm-control.sh <id> interrupt` delivered a single Escape, per the harness-adapters Claude reference's then-current claim that Escape "dismisses whichever of the two is on screen without answering it".
-`${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json` afterward, `jq` over `.projects` (flags only):
+`${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json` afterward, `jq` over `.projects` (flags only), exactly as `data/queue-release-2026-09-25.md` recorded them - the worktree entry (the pane's own cwd) and the canonical project entry are NOT the same, and only the project entry carries the decline:
 
 ```
-<worktree entry>                    trust=true extApproved=false extShown=true
-<project entry>                     trust=true extApproved=false extShown=true
+<home>/projects/research-kb                                                  trust=true extApproved=false extShown=true
+<home>/projects/research-kb/.treehouse/research-kb-1b6f19/1/research-kb      trust=true extApproved=null  extShown=null
 ```
 
-`false` plus `shown=true` is exactly the pair `bin/fm-claude-trust.sh` documents as an explicit human "No, disable" (see "Claude workspace trust" above), so Escape saved a real decline rather than merely closing the dialog.
+`false` plus `shown=true` on the project entry is exactly the pair `bin/fm-claude-trust.sh` documents as an explicit human "No, disable" (see "Claude workspace trust" above), so Escape saved a real decline rather than merely closing the dialog.
+The worktree entry staying `null`/`null` matches `bin/fm-claude-trust.sh`'s own documented mechanism: "the external-imports check ... reads ONLY the canonical project-root entry" reached by Claude Code's own git-root canonicalization, which walks a linked worktree's `.git` file through its `commondir` pointer back to the primary checkout - so the live dialog reads and writes that same canonical entry, not the worktree's own.
 `bin/fm-claude-trust.sh` then correctly refused to overwrite that decline on every later launch for that project from that home, matching its documented consent-gating contract - the dialog itself was the bug (see fm_treehouse_ensure_isolated_pool in `bin/fm-wake-lib.sh`), not the trust script's refusal.
 The harness-adapters Claude reference was corrected the same day to state this instead of the earlier "dismisses without answering" claim; that earlier claim is what this entry supersedes, and any future doubt about Escape's effect on either Claude dialog should be settled the same way - a live pane, its rendered text, and the resulting `.claude.json` flags - rather than assumed.
-No automated guard pins this: it is an interactive-dialog observation of the kind `firstmate-coding-guidelines`' harness-dependent-checks section calls out as unavoidably manual, so a version bump should re-verify it live rather than trust this entry indefinitely.
+
+The brief for this fix also raised a counter-observation worth settling here, since it bears on why relocating the pool outside a home's directory tree is a sufficient fix: a Claude scout launched from a project-less home into `/Users/noahvonmaur/firstmate/.treehouse/firstmate-bfd564/1/firstmate` - itself physically nested inside the root home's own directory tree, whose `CLAUDE.md` imports `@AGENTS.md` - got no import prompt.
+Re-querying that same real entry from `~/.claude.json` on 2026-09-25 (read-only; `jq`-equivalent field read, no file copied) still shows it unasked, not merely unrestated:
+
+```
+/Users/noahvonmaur/firstmate/.treehouse/firstmate-bfd564/1/firstmate    trust=true extApproved=null extShown=null
+```
+
+`null`/`null`, not an approval, so the dialog was never triggered there at all - it is not that Claude silently approved a same-repo import.
+The mechanism above explains this without contradiction: that worktree's own canonical primary checkout, reached by the same git-common-dir walk, IS `/Users/noahvonmaur/firstmate` itself (a project-less home's leased worktree is a linked worktree of that exact repo), so the `CLAUDE.md` sitting at `/Users/noahvonmaur/firstmate` is the canonical project root's own file, not an import reaching outside it - "outside the project tree" is evaluated against the canonical primary checkout, not the worktree's raw filesystem ancestors.
+For a non-root home's ordinary project crew spawn (the bug this fix addresses), the canonical primary checkout is the project clone itself - a different repository from the home - so the home's `CLAUDE.md` genuinely sits outside it regardless of physical nesting, which is why that case renders the prompt and the project-less case does not.
+Relocating the pool outside every home's directory tree, as this fix does, does not depend on resolving that distinction correctly: it removes the ancestor `CLAUDE.md` from the filesystem walk entirely, so there is nothing left for either mechanism to classify.
+
+Neither the corrected flags above nor this counter-observation re-check required a live launch - both are read-outs of existing recorded evidence (the incident report and the current, unmodified `.claude.json` store).
+A live A/B launch comparing a legacy in-home slot against a slot under the new pool root - the strongest possible confirmation - was attempted in scratch for this same fix and could not be completed in this environment: every path tried to reach an authenticated interactive session (copying `~/.claude.json`'s real credentials into a scratch `CLAUDE_CONFIG_DIR`, reading the login keychain entry, and launching with a synthetic `ANTHROPIC_API_KEY` purely to clear the onboarding login screen without touching real credentials) was refused by this sandbox's own credential-handling policy before any command ran, and repeating the attempt through a different mechanism is exactly what that policy asks not to do.
+No automated guard pins this: it is an interactive-dialog observation of the kind `firstmate-coding-guidelines`' harness-dependent-checks section calls out as unavoidably manual, and unlike the other dated entries in this file it still needs that live A/B run from an operator with real Claude Code credentials, using a scratch home and a scratch `CLAUDE_CONFIG_DIR` throughout so no real project state is touched:
+
+```sh
+# Legacy in-home slot (the PR #7 shape):
+( cd <scratch-clone> && printf 'root = "."\n' > treehouse.toml && treehouse get --root . )
+# A slot under this fix's pool root:
+( . bin/fm-wake-lib.sh && fm_treehouse_ensure_isolated_pool <scratch-clone> <scratch-home>
+  treehouse get --root "$(fm_treehouse_pool_root <scratch-clone>)" )
+# In each resulting worktree:
+CLAUDE_CONFIG_DIR=<scratch-config-dir> claude --dangerously-skip-permissions
+```
+
+Record whether the external-imports prompt renders in each pane, and the resulting `hasClaudeMdExternalIncludes*` flags, before trusting this entry as confirmed rather than well-reasoned.
 
 ### Secondmate homes
 
