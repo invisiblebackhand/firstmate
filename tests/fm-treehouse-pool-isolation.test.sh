@@ -198,13 +198,13 @@ test_ensure_isolated_pool_refuses_incompatible_existing_config() {
   local rec out status
   rec=$(make_case incompatible)
   read_case "$rec"
-  printf 'max_trees = 4\n' > "$SECOND_CLONE/treehouse.toml"
+  printf 'root = "/custom/pool"\n' > "$SECOND_CLONE/treehouse.toml"
 
   out=$(run_ensure "$SECOND_CLONE" "$SECOND_HOME" 2>&1)
   status=$?
   [ "$status" -ne 0 ] || fail "fm_treehouse_ensure_isolated_pool overwrote an existing treehouse.toml it did not recognize"
   assert_contains "$out" "already exists" "refusal did not explain the pre-existing config"
-  [ "$(cat "$SECOND_CLONE/treehouse.toml")" = 'max_trees = 4' ] \
+  [ "$(cat "$SECOND_CLONE/treehouse.toml")" = 'root = "/custom/pool"' ] \
     || fail "fm_treehouse_ensure_isolated_pool modified a pre-existing config it should have left alone"
   pass "fm_treehouse_ensure_isolated_pool refuses to overwrite an incompatible pre-existing treehouse.toml"
 }

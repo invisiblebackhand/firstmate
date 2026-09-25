@@ -1252,8 +1252,8 @@ fm_treehouse_project_lock_path() {  # <project-dir>
 # clone's own directory tree, which cannot alias another clone's pool no
 # matter what origin they share. Every treehouse invocation this repo makes
 # against a project (get, return, status) always runs with the project's own
-# clone as cwd, so writing this file once is enough - no call site needs a
-# --root flag or TREEHOUSE_ROOT export to find it.
+# clone as cwd, so writing only that root setting once is enough - no call
+# site needs a --root flag or TREEHOUSE_ROOT export to find it.
 #
 # Only a home that is NOT the local root ever gets this. The root/primary
 # home's project clones keep Treehouse's ordinary default root untouched:
@@ -1280,7 +1280,7 @@ fm_treehouse_ensure_isolated_pool() {  # <project-dir> <home>
     fi
   else
     tmp="$toml.tmp.${BASHPID:-$$}"
-    if { printf 'max_trees = 16\n'; printf 'root = "."\n'; } > "$tmp" 2>/dev/null \
+    if printf 'root = "."\n' > "$tmp" 2>/dev/null \
       && mv -f "$tmp" "$toml" 2>/dev/null; then
       :
     else
