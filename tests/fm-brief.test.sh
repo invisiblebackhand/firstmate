@@ -422,12 +422,16 @@ test_ask_user_escalation_format() {
     "ship rule 6 must require the same shape for a single finding"
   assert_grep "write only the ask-user findings, verbatim and unparaphrased (id, severity, file, line, description, authority)" "$brief" \
     "ship rule 6 must limit the verbatim axi slice to ask-user findings"
+  assert_grep "headed by one line stating this gate's review round number" "$brief" \
+    "ship rule 6 must have the worker state the review round number on each ask-user gate report"
+  assert_grep "Whenever you append a status line at a no-mistakes gate, state that gate's review round number in the line's free text" "$brief" \
+    "no-mistakes DOD must require a review round number on every gate status line"
   # shellcheck disable=SC2016  # single quotes are deliberate: backticks and the key/findings/file tokens must stay literal
-  assert_grep 'needs-decision [at=<epoch>] [key=nm-<run>-<step>]: ask-user findings=<id1>,<id2>,... file='"$home/data/$id/nm-<run>-findings.txt" "$brief" \
+  assert_grep 'needs-decision [at=<epoch>] [key=nm-<run>-<step>]: ask-user findings=<id1>,<id2>,... file='"$home/data/$id/nm-<run>-findings.txt review round <number>" "$brief" \
     "ship rule 6 must render the exact needs-decision ask-user status line"
   assert_grep "$home/data/$id/nm-<run>-findings.txt" "$brief" \
     "ship rule 6 must point the snapshot file under this task's own data directory"
-  assert_grep "The status line only points at the file; it never restates or summarizes a finding's content." "$brief" \
+  assert_grep "The status line points at the file and states the review round; it never restates or summarizes a finding's content." "$brief" \
     "ship rule 6 must forbid paraphrasing ask-user findings into the status line"
 
   # The DOD's own ask-user paragraph must point back at rule 6's format
